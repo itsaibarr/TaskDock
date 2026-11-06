@@ -1,0 +1,16 @@
+# UNVERIFIED: written locally and never run on GitHub. Check the runner image and Xcode path on first run.
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift + extension tests
+        run: ./scripts/test.sh
+      - name: Release build
+        run: ./scripts/build.sh

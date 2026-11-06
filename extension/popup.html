@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><link rel="stylesheet" href="style.css">
+<style>body { width: 280px; padding: 14px 16px; } .status { margin-top: 12px; font-size: 12px; }</style></head>
+<body>
+  <div id="task" hidden>
+    <div class="muted" id="meta"></div>
+    <div class="goal" id="goal"></div>
+  </div>
+  <div id="idle" hidden>
+    <div class="goal">No active task</div>
+    <div class="muted">Press ⌃⌥Space to start one.</div>
+  </div>
+  <div class="status muted" id="status"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

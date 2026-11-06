@@ -1,0 +1,25 @@
+# SwiftPM / Xcode build output
+.build/
+build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Local data, logs and screenshot runs (scripts/shots.sh writes wherever you point it)
+*.log
+shots*/
+sample-data/
+.env
+.env.*
+
+# JS tooling, if added later
+node_modules/

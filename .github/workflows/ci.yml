@@ -1,4 +1,3 @@
-# UNVERIFIED: written locally and never run on GitHub. Check the runner image and Xcode path on first run.
 name: CI
 on:
   push:

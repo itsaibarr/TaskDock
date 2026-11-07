@@ -6,6 +6,8 @@
 // When a task needs the browser: open one fresh window for it, minimize every other
 // window and unload ("discard") its tabs until the task ends.
 
+import { taskTabs } from './lib.js';
+
 const PORT = 47123;
 let ws = null;
 let ping = null;
@@ -23,7 +25,7 @@ function connect() {
   const sock = (ws = new WebSocket(`ws://127.0.0.1:${PORT}`));
   sock.onopen = () => {
     chrome.storage.session.set({ connected: true });
-    send({ type: 'hello' });
+    send({ type: 'hello', v: 2 }); // v2: reports tabs while the task runs
     ping = setInterval(() => send({ type: 'ping' }), 20_000); // keeps the service worker alive
   };
   sock.onclose = () => {
@@ -59,7 +61,7 @@ async function reconcile(next) {
 }
 
 async function start(s) {
-  const state = { id: s.id, goal: s.goal, name: s.name, emoji: s.emoji, startedAt: s.startedAt, browser: !!s.browser, paused: [], taskWindowId: null };
+  const state = { id: s.id, goal: s.goal, name: s.name, emoji: s.emoji, startedAt: s.startedAt, browser: !!s.browser, tabs: s.tabs ?? [], paused: [], taskWindowId: null };
 
   if (s.browser) {
     // TaskDock activates the browser just before telling us; give macOS a moment so
@@ -86,7 +88,20 @@ async function start(s) {
 }
 
 async function openTaskWindow(state) {
-  state.taskWindowId = (await chrome.windows.create({ focused: true })).id;
+  await adoptTaskWindow(state, (await chrome.windows.create({ focused: true })).id);
+}
+
+// Makes this the task's window and reopens the tabs saved when the task last ended.
+async function adoptTaskWindow(state, windowId) {
+  state.taskWindowId = windowId;
+  // Session storage empties when the browser quits, so a window id from before a restart is never trusted.
+  await chrome.storage.session.set({ taskWindow: windowId });
+  state.tabs ??= []; // sessions saved by an older version have no list
+  if (state.tabs.length) {
+    const blank = (await chrome.tabs.query({ windowId })).filter((t) => /^chrome:\/\/newtab|^$/.test(t.pendingUrl || t.url || ''));
+    for (const [i, url] of state.tabs.entries()) await chrome.tabs.create({ windowId, url, active: i === 0 }).catch(() => {});
+    await chrome.tabs.remove(blank.map((t) => t.id)).catch(() => {}); // the empty new-tab page the window opened with
+  }
   await setSession(state);
 }
 
@@ -96,15 +111,38 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
     const s = await getSession();
     if (!s?.browser || s.taskWindowId != null) return;
     if (!s.paused.some((w) => w.id === windowId)) {
-      s.taskWindowId = windowId; // a window the browser just opened itself: use it
-      return setSession(s);
+      return adoptTaskWindow(s, windowId); // a window the browser just opened itself: use it
     }
     await chrome.windows.update(windowId, { state: 'minimized' }).catch(() => {}); // macOS reopened an old window
     await openTaskWindow(s);
   });
 }, { windowTypes: ['normal'] }); // app/popup windows must never become the task window
 
+// Tell TaskDock the task's tabs whenever they change (debounced), so they're already saved when the
+// task ends, even if the browser quits or the service worker is asleep at that moment.
+let tabsTimer = null;
+function reportTabs() {
+  clearTimeout(tabsTimer);
+  tabsTimer = setTimeout(() => serial(async () => sendTabs(await getSession())), 1000);
+}
+
+// Only the browser hosting the live task window reports, and only that window's tabs.
+async function sendTabs(s) {
+  if (!s?.browser || s.taskWindowId == null) return;
+  if ((await chrome.storage.session.get('taskWindow')).taskWindow !== s.taskWindowId) return; // browser restarted
+  const w = await chrome.windows.get(s.taskWindowId, { populate: true }).catch(() => null);
+  if (w) send({ type: 'tabs', session: s.id, urls: taskTabs(w.tabs) });
+}
+chrome.tabs.onCreated.addListener(reportTabs);
+chrome.tabs.onUpdated.addListener((_, change) => change.url && reportTabs());
+chrome.tabs.onRemoved.addListener((_, info) => info.isWindowClosing || reportTabs()); // closing/quitting keeps the list
+chrome.tabs.onAttached.addListener(reportTabs);
+chrome.tabs.onDetached.addListener(reportTabs);
+chrome.tabs.onMoved.addListener(reportTabs);
+
 async function finish(s) {
+  clearTimeout(tabsTimer);
+  await sendTabs(s); // last word on the tabs, including changes from the final second
   // Only un-minimize windows that are still minimized, so running this twice (after an
   // interruption) never undoes anything the user did. Clear the session last.
   for (const w of s.paused) {

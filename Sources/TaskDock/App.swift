@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Store.shared.boot()
             Hotkey.register { MainActor.assumeIsolated { Windows.togglePicker() } }
             Debug.run()
+            E2E.run()
         }
     }
 }
@@ -65,8 +66,9 @@ struct MenuView: View {
             }
 
             HStack(spacing: 6) {
-                Circle().fill(store.browsers > 0 ? Color.green : Color.orange).frame(width: 6, height: 6)
-                Text(store.browsers > 0 ? "Browser connected" : "Browser extension not connected")
+                Circle().fill(store.browsers > 0 && !store.outdatedExtension ? Color.green : Color.orange).frame(width: 6, height: 6)
+                Text(store.outdatedExtension ? "Reload the TaskDock extension in your browser"
+                     : store.browsers > 0 ? "Browser connected" : "Browser extension not connected")
                 if calendar.connected {
                     Circle().fill(Color.green).frame(width: 6, height: 6).padding(.leading, 6)
                     Text("Calendars connected")
@@ -90,7 +92,7 @@ struct MenuView: View {
                 if s.goal != s.template.name {
                     Text(s.goal).font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
                 }
-                TextField("Where did you stop?", text: $note)
+                TextField("Where did you stop? What's next?", text: $note)
                     .textFieldStyle(FilledFieldStyle())
                     .onSubmit(finish)
                 HStack(spacing: 8) {

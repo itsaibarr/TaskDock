@@ -13,8 +13,17 @@ your other windows (and their tabs) are paused. When you finish, everything goes
 - **Hotkey picker (⌃⌥Space)** — a small search panel. Pick a template, optionally type what you'll finish, and press ↩.
   Templates can be edited in place (icon, name, apps), reordered by dragging, and edited or deleted from a right-click menu.
 - **Focus on start** — the template's apps open; every other app is hidden (not quit); the Dock shows only the template's apps.
-- **Restore on finish** — previously visible apps come back and your exact previous Dock is restored.
-  A "where did you stop?" note is shown next time you pick that template.
+- **Restore on finish** — previously visible apps come back, apps TaskDock opened for the task are quit (normally,
+  so they can still ask to save), and your exact previous Dock is restored.
+- **Pick up where you left off** — finishing or switching saves the task's browser tabs, the documents open in
+  its scriptable apps (Preview, TextEdit, Pages…; Preview also reopens a PDF at the page you were on), the note
+  open in Obsidian, and your "where did you stop? what's next?" note. Next time you pick the template, ↩ reopens it
+  all; **Start fresh** skips it.
+- **Phi Spaces (optional)** — a template that includes [Phi](https://phibrowser.com) switches Phi to the Space named
+  like the template (or the one you pick in the picker). Phi keeps that Space's tabs itself. If there's no such
+  Space, TaskDock creates it (needs Accessibility).
+- **AeroSpace (optional)** — with [AeroSpace](https://github.com/nikitabobko/AeroSpace) installed, finishing a task
+  remembers which workspace each of its apps was on, and the next start moves their windows back there.
 - **Browser extension (optional)** — for templates that include a browser: opens a fresh window, minimizes the
   other windows and unloads their tabs until you finish.
 - **Calendar suggestion (optional)** — with calendar access, the event happening now (or in the next 15 minutes)
@@ -66,7 +75,11 @@ sees whatever Calendar.app sees. For Google calendars, add your Google account i
 | Permission | Why | When asked |
 |---|---|---|
 | Calendars (full access) | Suggest the current event | Only after **Connect Calendars…** |
-| None for hiding apps | Uses `NSRunningApplication.hide()`; no Accessibility permission | — |
+| Automation (per app, e.g. Preview) | Read which documents a task had open | First finish of a task using that app |
+| Automation (Phi) | List Phi's Spaces and switch to the task's Space | First start of a task using Phi |
+| Accessibility (optional) | Create a missing Phi Space through Phi's **New Space** menu (Phi's scripting can't create Spaces) | When you choose **Create “…” Now** in the picker |
+| Documents folder | Read Obsidian's open note (vault in `~/Documents`) | First finish of a task using Obsidian |
+| None for hiding apps | Uses `NSRunningApplication.hide()` | — |
 
 Starting and finishing a task may run `/usr/bin/shortcuts run "<name>"` for the Shortcut names you set on a template.
 
@@ -86,11 +99,13 @@ Environment variables (for development; none are needed for normal use):
 
 All data stays on your Mac. Nothing is sent over the network.
 
-- `~/Library/Application Support/TaskDock/templates.json` — your templates and "where you stopped" notes.
+- `~/Library/Application Support/TaskDock/templates.json` — your templates, "where you stopped" notes, and each
+  task's saved state (tab URLs and file paths).
 - `…/session.json` — the running task, including your previous Dock layout (deleted on finish).
 - `…/dock-original.plist` — a backup of your Dock from the first time TaskDock changed it.
 - The browser bridge is a WebSocket on `127.0.0.1:47123` (loopback only). It sends the current task's name,
-  icon, goal and start time to connected extensions, which keep it in the extension's local storage.
+  icon, goal, start time and saved tab URLs to connected extensions, which keep them in the extension's local storage.
+  When a task ends, the extension sends back that task window's web addresses (http/https only).
   See [SECURITY.md](SECURITY.md) for its limits.
 
 ## Safety and undo
@@ -102,7 +117,8 @@ All data stays on your Mac. Nothing is sent over the network.
   ```sh
   defaults import com.apple.dock ~/Library/Application\ Support/TaskDock/dock-original.plist && killall Dock
   ```
-- Apps are only hidden, never quit, so no work is lost.
+- Apps that were open before a task are only hidden, never quit. Apps TaskDock opened for the task are quit
+  when it ends with a normal quit, so apps with unsaved work ask first.
 
 ### Uninstall
 
@@ -114,9 +130,13 @@ Finish any running task, quit TaskDock (◎ → Quit), delete the app, remove th
 - macOS always shows running apps in the Dock. Hidden apps keep their Dock icon (only pinned apps are removed).
 - The Dock flickers for about a second on start and finish; starting within ~6 s of the last Dock change waits for it to settle.
 - The hotkey is fixed (⌃⌥Space) and there is no launch-at-login.
-- Apps opened for a task stay open after it ends, and so does the task's browser window.
+- The task's browser window (extension browsers) stays open after the task ends.
 - If two browsers have the extension, both pause their windows during a browser task.
-- Ad-hoc signed only: not notarized, and macOS may ask for calendar access again after each rebuild.
+- Saved state is per app, not per task: if two tasks share Preview, each saves every document Preview has open.
+  Window positions and scroll position inside web pages aren't saved. Other apps (VS Code, etc.) rely on their own restore.
+- AeroSpace workspaces are saved per app: every window of an app moves to that app's saved workspace on start.
+- Ad-hoc signed only: not notarized. After each rebuild macOS may ask for calendar and Automation access again, and
+  the Accessibility switch for TaskDock must be turned off and on again (it looks on but no longer applies).
 
 ## How it works
 

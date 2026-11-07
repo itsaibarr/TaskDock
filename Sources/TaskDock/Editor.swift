@@ -168,7 +168,7 @@ struct TemplateForm: View {
                     }
                 }
 
-                if t.apps.contains(where: \.isBrowser) {
+                if t.apps.contains(where: \.usesExtension) {
                     section("Browser") {
                         VStack(alignment: .leading, spacing: 8) {
                             Label("A fresh browser window opens for the task. Your other windows are minimized and their tabs paused until you finish.",

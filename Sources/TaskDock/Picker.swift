@@ -65,6 +65,10 @@ struct PickerView: View {
     @State private var editing: Editing?
     @State private var dragging: UUID?
     @State private var goal = ""
+    /// Start without reopening what was saved last time.
+    @State private var fresh = false
+    /// Phi's Spaces, read when a template that uses Phi is opened.
+    @State private var phiSpaces: [Phi.Space] = []
     /// Calendar event happening now; read once when the picker opens.
     @State private var suggestion: CalendarSuggestion?
     @State private var note = ""
@@ -242,6 +246,9 @@ struct PickerView: View {
                     .buttonStyle(.plain).help("Choose the apps for this task")
             }
             .padding(.horizontal, 8).padding(.top, 6)
+            if t.usesPhi {
+                phiSpaceRow(i).padding(.horizontal, 8)
+            }
             if editing == .icon {
                 EmojiGrid(emoji: $store.templates[i].emoji) { toggle(nil) }
                     .padding(.horizontal, 4)
@@ -253,13 +260,12 @@ struct PickerView: View {
             }
             // The composer: an opaque cloud on the glass, like the references' message box.
             VStack(alignment: .leading, spacing: 10) {
-                if !t.lastStopNote.isEmpty {
-                    Text("Last time: \(t.lastStopNote)").font(.callout).foregroundStyle(Theme.note)
-                        .fixedSize(horizontal: false, vertical: true)
+                if saved(t) != nil || !t.lastStopNote.isEmpty {
+                    resumeCard(t)
                 }
                 field("What will you finish? (optional)", $goal) { start(t) }
                 HStack {
-                    hint("↩ start · esc close")
+                    hint(saved(t) != nil && !fresh ? "↩ resume · esc close" : "↩ start · esc close")
                     Spacer()
                     Button { start(t) } label: {
                         Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold))
@@ -272,6 +278,89 @@ struct PickerView: View {
             .card(radius: 18)
         }
         .transition(.reveal(reduceMotion: reduceMotion))
+    }
+
+    /// Which Phi Space the task switches to. Phi keeps that Space's tabs, so nothing else is needed for the browser.
+    private func phiSpaceRow(_ i: Int) -> some View {
+        let t = store.templates[i]
+        let current = Phi.space(for: t, in: phiSpaces)
+        return HStack(spacing: 8) {
+            Text("Phi Space").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted)
+            Menu {
+                ForEach(phiSpaces) { s in Button(s.title) { store.templates[i].phiSpace = s.title } }
+                if current == nil {
+                    Divider()
+                    Button("Create “\(t.name)” Now") { createPhiSpace(t) }
+                }
+            } label: {
+                Text(current?.title ?? (phiSpaces.isEmpty ? "Open Phi to choose"
+                    : t.phiSpace == nil ? "New “\(t.name)”, created on start" : "Choose a Space"))
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .disabled(phiSpaces.isEmpty)
+            Spacer()
+        }
+        .task(id: t.id) { phiSpaces = await Task.detached { Phi.spaces() }.value }
+    }
+
+    /// Makes the Space right away (through Phi's menu, so Phi comes to the front), then links it.
+    private func createPhiSpace(_ t: Template) {
+        Task {
+            if await Task.detached(operation: { Phi.create(t.name, prompt: true) }).value { store.linkPhiSpace(t.id, t.name) }
+            phiSpaces = await Task.detached { Phi.spaces() }.value
+        }
+    }
+
+    private func saved(_ t: Template) -> Resume? { t.resume.flatMap { $0.isEmpty ? nil : $0 } }
+
+    /// What was open last time and the note you left; ↩ reopens it unless "Start fresh" is on.
+    private func resumeCard(_ t: Template) -> some View {
+        let r = saved(t)
+        let icon = { (id: String) in t.apps.first { $0.bundleID == id }?.path }
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.uturn.backward").frame(width: 14)
+                Text(fresh ? "Starting fresh" : "Pick up where you left off")
+                if let r {
+                    Text("· \(r.savedAt.formatted(.relative(presentation: .named)))")
+                }
+                Spacer()
+                if r != nil {
+                    Button(fresh ? "Resume" : "Start fresh") { withAnimation(settle) { fresh.toggle() } }
+                        .buttonStyle(.plain).foregroundStyle(Theme.accent)
+                }
+            }
+            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+            if !t.lastStopNote.isEmpty {
+                Text(t.lastStopNote).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.note)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let r {
+                // Chips wrap onto a second line rather than running off the card.
+                ChipFlow {
+                    if !r.tabs.isEmpty {
+                        chip(t.apps.first(where: \.usesExtension)?.path, r.tabs.count == 1 ? "1 tab" : "\(r.tabs.count) tabs")
+                    }
+                    ForEach(r.items, id: \.self) { item in
+                        chip(icon(item.app), item.title)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Theme.field, in: RoundedRectangle(cornerRadius: 12, style: .continuous)) // inside the white card, not on glass
+        .opacity(fresh ? 0.5 : 1)
+    }
+
+    private func chip(_ appPath: String?, _ title: String) -> some View {
+        HStack(spacing: 5) {
+            if let appPath { Image(nsImage: NSWorkspace.shared.icon(forFile: appPath)).resizable().frame(width: 14, height: 14) }
+            Text(title).lineLimit(1)
+        }
+        .font(.system(size: 12, weight: .medium)).foregroundStyle(.primary.opacity(0.8))
+        .padding(.horizontal, 8).frame(height: 22)
+        .background(Theme.card, in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 0.5))
     }
 
     // MARK: Finish
@@ -289,9 +378,9 @@ struct PickerView: View {
                 if s.goal != s.template.name { // no goal typed: the header already names the task
                     Text(s.goal).font(.system(size: 18, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
                 }
-                field("Where did you stop?", $note, onSubmit: finish)
+                field("Where did you stop? What's next?", $note, onSubmit: finish)
                 HStack(spacing: 8) {
-                    hint("esc close")
+                    hint(s.template.apps.isEmpty ? "esc close" : "Open tabs and files are saved · esc close")
                     Spacer()
                     Button("Switch Task…") { withAnimation(Theme.settle) { switching = true } }
                         .buttonStyle(PillButtonStyle())
@@ -334,6 +423,7 @@ struct PickerView: View {
     }
 
     private func choose(_ t: Template) {
+        fresh = false
         withAnimation(settle) { chosenID = t.id }
     }
 
@@ -356,7 +446,7 @@ struct PickerView: View {
     private func start(_ t: Template) {
         let g = goal.trimmingCharacters(in: .whitespaces)
         close()
-        store.start(t, goal: g.isEmpty ? t.name : g) // goal is optional: ↩ on an empty field quick-starts
+        store.start(t, goal: g.isEmpty ? t.name : g, resume: !fresh) // goal is optional: ↩ on an empty field quick-starts
     }
 
     // MARK: Pieces
@@ -423,5 +513,44 @@ struct RoundButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .animation(Theme.quick, value: configuration.isPressed)
             .animation(Theme.quick, value: enabled)
+    }
+}
+
+/// Lays chips out in rows, wrapping to the next row when one is full.
+struct ChipFlow: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(proposal.width ?? .infinity, subviews)
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0,
+                      height: rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(bounds.width, subviews) {
+            var x = bounds.minX
+            for i in row.items {
+                let size = subviews[i].sizeThatFits(.unspecified)
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: min(size.width, bounds.width), height: size.height))
+                x += min(size.width, bounds.width) + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> [(items: [Int], width: CGFloat, height: CGFloat)] {
+        var rows: [(items: [Int], width: CGFloat, height: CGFloat)] = []
+        for (i, v) in subviews.enumerated() {
+            let s = v.sizeThatFits(.unspecified), w = min(s.width, width)
+            if let last = rows.last, last.width + spacing + w <= width {
+                rows[rows.count - 1].items.append(i)
+                rows[rows.count - 1].width += spacing + w
+                rows[rows.count - 1].height = max(last.height, s.height)
+            } else {
+                rows.append(([i], w, s.height))
+            }
+        }
+        return rows
     }
 }

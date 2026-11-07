@@ -5,13 +5,22 @@ import Network
 /// Simpler than native messaging: no per-browser host manifest, works in Helium and Brave alike.
 @MainActor
 final class Bridge {
-    static let port: NWEndpoint.Port = 47123
+    static let port: NWEndpoint.Port = {
+        #if DEBUG // the end-to-end test runs beside the installed app, on its own port
+        if let p = ProcessInfo.processInfo.environment["TASKDOCK_PORT"].flatMap(UInt16.init).flatMap(NWEndpoint.Port.init(rawValue:)) { return p }
+        #endif
+        return 47123
+    }()
 
     var stateMessage: () -> [String: Any] = { [:] }
-    var onBrowsersChanged: (Int) -> Void = { _ in }
+    /// Connected browsers, and whether any still runs older extension code (v1, can't save tabs until reloaded).
+    var onBrowsersChanged: (_ count: Int, _ outdated: Bool) -> Void = { _, _ in }
+    /// The current task window's tabs, by session.
+    var onTabs: (UUID, [String]) -> Void = { _, _ in }
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
+    private var outdated = Set<ObjectIdentifier>()
 
     func start() {
         let ws = NWProtocolWebSocket.Options()
@@ -45,6 +54,7 @@ final class Bridge {
                 switch st {
                 case .failed, .cancelled:
                     self?.connections[key] = nil
+                    self?.outdated.remove(key)
                     self?.changed()
                 default: break
                 }
@@ -55,7 +65,7 @@ final class Bridge {
         changed()
     }
 
-    private func changed() { onBrowsersChanged(connections.count) }
+    private func changed() { onBrowsersChanged(connections.count, !outdated.isEmpty) }
 
     private func receive(_ c: NWConnection) {
         c.receiveMessage { [weak self] data, ctx, isComplete, error in
@@ -76,7 +86,15 @@ final class Bridge {
 
     private func handle(_ msg: [String: Any], from c: NWConnection) {
         switch msg["type"] as? String {
-        case "hello": send(stateMessage(), to: c)
+        case "hello":
+            // v2 reports tabs while a task runs.
+            if (msg["v"] as? Int ?? 1) < 2 { outdated.insert(ObjectIdentifier(c)) } else { outdated.remove(ObjectIdentifier(c)) }
+            changed()
+            send(stateMessage(), to: c)
+        case "tabs":
+            guard let id = (msg["session"] as? String).flatMap(UUID.init), let urls = msg["urls"] as? [String] else { return }
+            // Only web pages, so a saved tab can't become anything else when it's reopened.
+            onTabs(id, Array(urls.filter { $0.hasPrefix("https://") || $0.hasPrefix("http://") }.prefix(50)))
         default: break // "ping" keeps the extension's service worker alive
         }
     }

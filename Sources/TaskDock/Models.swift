@@ -29,6 +29,8 @@ struct AppRef: Codable, Hashable, Identifiable {
 
     /// Any app that can open web links counts as a browser.
     var isBrowser: Bool { AppRef.browserIDs.contains(bundleID) }
+    /// A browser the TaskDock extension manages (fresh window, saved tabs). Phi keeps tabs in its own Spaces.
+    var usesExtension: Bool { isBrowser && bundleID != Phi.id }
 
     static let browserIDs = Set(
         NSWorkspace.shared.urlsForApplications(toOpen: URL(string: "https://example.com")!)
@@ -44,6 +46,35 @@ struct Template: Codable, Hashable, Identifiable {
     var startShortcut = ""
     var endShortcut = ""
     var lastStopNote = ""
+    /// What was open when the task last ended; reopened on the next start. Optional so older files load.
+    var resume: Resume?
+    /// Phi Space to switch to on start (by title). Nil: the Space named like the template, if any.
+    var phiSpace: String?
+
+    var usesPhi: Bool { apps.contains { $0.bundleID == Phi.id } }
+}
+
+/// Snapshot of a task's working state: browser tabs plus files and notes, each with the app that had it open.
+struct Resume: Codable, Hashable {
+    var savedAt = Date()
+    var tabs: [String] = []
+    var items: [Item] = []
+    /// AeroSpace workspace each app was on (bundle ID → workspace). Optional so older files load.
+    var workspaces: [String: String]?
+
+    struct Item: Codable, Hashable {
+        var app: String // bundle ID
+        var url: URL
+
+        /// "Calculus" for /Books/Calculus.pdf; the note name for an obsidian:// link.
+        var title: String {
+            let path = url.isFileURL ? url.path
+                : URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "path" }?.value ?? url.absoluteString
+            return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        }
+    }
+
+    var isEmpty: Bool { tabs.isEmpty && items.isEmpty }
 }
 
 struct Session: Codable {
@@ -55,6 +86,8 @@ struct Session: Codable {
     var visibleApps: [String]
     /// Exported com.apple.dock preferences from before the task.
     var dock: Data?
+    /// Apps TaskDock opened for this task; they're quit when it ends. Optional so older files load.
+    var launched: [String]?
 }
 
 func elapsedText(since start: Date, now: Date) -> String {
@@ -72,4 +105,25 @@ func run(_ path: String, _ args: [String], wait: Bool = true) -> Int32 {
     guard wait else { return 0 }
     p.waitUntilExit()
     return p.terminationStatus
+}
+
+/// Runs an AppleScript and returns what it printed. Blocking.
+func osascript(_ script: String) -> Data? { capture("/usr/bin/osascript", ["-e", script]) }
+
+/// Runs a command and returns what it printed, or nil if it failed (its error is logged).
+func capture(_ path: String, _ args: [String]) -> Data? {
+    let p = Process(), out = Pipe(), err = Pipe()
+    p.executableURL = URL(fileURLWithPath: path)
+    p.arguments = args
+    p.standardOutput = out
+    p.standardError = err
+    do { try p.run() } catch { return nil }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    let problem = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    p.waitUntilExit()
+    guard p.terminationStatus == 0 else {
+        NSLog("TaskDock: \(URL(fileURLWithPath: path).lastPathComponent) failed: \(problem.prefix(300))")
+        return nil
+    }
+    return data
 }

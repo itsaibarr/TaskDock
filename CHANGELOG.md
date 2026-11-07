@@ -5,6 +5,25 @@ All notable changes to TaskDock. Versions follow [Semantic Versioning](https://s
 Only 0.3.0 has published source. 0.1.0 and 0.2.0 were development milestones before the project
 was put under version control; their source was not kept, so they have no tags or downloads.
 
+## [Unreleased]
+
+### Added
+- Pick up where you left off: finishing or switching a task saves its browser tabs, documents open in
+  scriptable apps (Preview reopens PDFs at the same page), the open Obsidian note, and your stop note.
+  Picking the template again shows them and ↩ reopens everything; **Start fresh** skips it.
+  Needs the updated browser extension; asks for Automation (per app) and Documents folder access once.
+- Phi browser: a task switches Phi to its Space (named like the template, or picked in the picker), and creates
+  the Space if it doesn't exist yet (through Phi's menu; needs Accessibility).
+- AeroSpace: finishing remembers each app's workspace; starting moves the windows back.
+- Finishing quits the apps TaskDock opened for the task (apps already open before stay open).
+
+### Fixed
+- Browser tabs are saved as they change during the task, not only at the moment it ends, so they survive
+  the browser quitting and tasks started by an older extension.
+
+### Changed
+- The finish prompt now asks "Where did you stop? What's next?".
+
 ## [0.3.0] - 2026-11-06
 
 First public release. Source only (no prebuilt app).

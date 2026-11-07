@@ -8,9 +8,13 @@ final class Store: ObservableObject {
     @Published var session: Session?
     @Published var now = Date()
     @Published var browsers = 0
+    /// Some connected browser still runs an older extension and needs it reloaded.
+    @Published var outdatedExtension = false
     @Published var editorSelection: UUID?
 
     let bridge = Bridge()
+    /// Sessions that just ended → their template, so a tab report sent right before the end still lands.
+    private var ended: [UUID: UUID] = [:]
 
     static let dir: URL = {
         // TASKDOCK_DATA_DIR points dev runs at sample data instead of your real templates.
@@ -30,7 +34,16 @@ final class Store: ObservableObject {
         // A session that survived a crash or quit is resumed, so Finish can still restore everything.
         session = load(Session.self, from: sessionFile)
         bridge.stateMessage = { [weak self] in self?.stateMessage ?? [:] }
-        bridge.onBrowsersChanged = { [weak self] n in self?.browsers = n }
+        bridge.onBrowsersChanged = { [weak self] n, outdated in
+            self?.browsers = n
+            self?.outdatedExtension = outdated
+        }
+        // The extension reports the task window's tabs whenever they change, so they're saved before the task ends.
+        bridge.onTabs = { [weak self] id, tabs in
+            guard let self, let template = session?.id == id ? session?.template.id : ended[id],
+                  templates.first(where: { $0.id == template })?.resume?.tabs != tabs else { return }
+            updateResume(template) { $0.tabs = tabs }
+        }
         bridge.start()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { _ in
             MainActor.assumeIsolated { Store.shared.now = Date() }
@@ -100,16 +113,24 @@ final class Store: ObservableObject {
             "name": s.template.name,
             "emoji": s.template.emoji,
             "startedAt": s.startedAt.timeIntervalSince1970 * 1000,
-            "browser": s.template.apps.contains(where: \.isBrowser),
+            "browser": s.template.apps.contains(where: \.usesExtension),
+            "tabs": s.template.resume?.tabs ?? [],
         ] as [String: Any]]
     }
 
-    func start(_ t: Template, goal: String) {
+    /// `resume`: reopen what was open when this task last ended.
+    func start(_ t: Template, goal: String, resume: Bool = true) {
+        var t = t
+        if !resume { // Start fresh: drop what was saved; this run saves its own state when it ends
+            t.resume = nil
+            updateTemplate(t.id) { $0.resume = nil }
+        }
         let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         var visible = running.filter { !$0.isHidden }.compactMap(\.bundleIdentifier)
         var dock: Data? // the "home" Dock to return to on finish
+        let prev = session
 
-        if let prev = session {
+        if let prev {
             // Switching: keep the pre-task home state instead of restoring it in between.
             visible = prev.visibleApps
             dock = prev.dock
@@ -122,11 +143,17 @@ final class Store: ObservableObject {
             dock = Dock.snapshot()
         }
 
+        // Apps opened for this task are quit when it ends; ones the previous task opened carry over if this task uses them too.
+        let ids = Set(t.apps.map(\.bundleID))
+        let opened = t.apps.map(\.bundleID).filter { !Snapshot.isRunning($0) } // any kind of app, not just Dock apps
+        let inherited = prev?.launched ?? []
+
         // Save before changing anything, so a crash mid-way can still be undone.
-        session = Session(template: t, goal: goal, visibleApps: visible, dock: dock)
+        session = Session(template: t, goal: goal, visibleApps: visible, dock: dock,
+                          launched: inherited.filter(ids.contains) + opened)
         saveSession()
 
-        let keep = Set(t.apps.map(\.bundleID)).union([Bundle.main.bundleIdentifier ?? ""])
+        let keep = ids.union([Bundle.main.bundleIdentifier ?? ""])
         for (i, app) in t.apps.enumerated() {
             if let r = running.first(where: { $0.bundleIdentifier == app.bundleID }) {
                 r.unhide()
@@ -139,6 +166,18 @@ final class Store: ObservableObject {
         }
         for app in running where !keep.contains(app.bundleIdentifier ?? "") { app.hide() }
 
+        // Reopen this task's files only after the previous task's open files were read,
+        // so an app both tasks use isn't saved with this task's files.
+        if let prev {
+            saveState(prev) {
+                Store.shared.quit(inherited)
+                Snapshot.reopen(t.resume?.items ?? [])
+            }
+        } else {
+            Snapshot.reopen(t.resume?.items ?? [])
+        }
+        restoreWindows(t)
+
         if let dock { Dock.apply(t.apps, over: dock, backup: dockBackupFile) }
         bridge.broadcast(stateMessage)
         runShortcut(t.startShortcut)
@@ -146,6 +185,7 @@ final class Store: ObservableObject {
 
     func finish(note: String) {
         guard let s = session else { return }
+        saveState(s) { Store.shared.quit(s.launched ?? []) } // quit only after their open files were read
         session = nil
         saveSession()
         bridge.broadcast(stateMessage)
@@ -158,10 +198,78 @@ final class Store: ObservableObject {
         runShortcut(s.template.endShortcut)
 
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !note.isEmpty, let i = templates.firstIndex(where: { $0.id == s.template.id }) {
-            templates[i].lastStopNote = note
-            saveTemplates()
+        if !note.isEmpty { updateTemplate(s.template.id) { $0.lastStopNote = note } }
+    }
+
+    /// Saves what the task's apps have open onto its template. Browser tabs arrive separately (bridge).
+    private func saveState(_ s: Session, then done: @escaping @MainActor () -> Void) {
+        ended[s.id] = s.template.id
+        // The browser's final report comes right away; a much later one (after a reconnect) must not count.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { self.ended[s.id] = nil }
+        let stamp = Date()
+        let apps = s.template.apps, ids = apps.map(\.bundleID)
+        // Quick; read now, before the next task moves windows. Extension browsers are left alone:
+        // their paused windows share the bundle ID with the task window.
+        let spaces = AeroSpace.workspaces(of: apps.filter { !$0.usesExtension }.map(\.bundleID))
+        updateResume(s.template.id) { r in
+            r.savedAt = stamp
+            r.workspaces = (r.workspaces ?? [:]).merging(spaces) { $1 }
         }
+        // A plain thread, not a Swift task: the first read of each app waits for the permission prompt.
+        DispatchQueue.global().async {
+            let (read, unread) = Snapshot.items(apps)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    Store.shared.updateResume(s.template.id) { r in
+                        guard r.savedAt == stamp else { return } // a newer save already ran
+                        // Running apps report what's open now; earlier files are kept for task apps that were
+                        // quit before finishing or couldn't be read.
+                        r.items = read + r.items.filter {
+                            !read.contains($0) && ids.contains($0.app) && (!Snapshot.isRunning($0.app) || unread.contains($0.app))
+                        }
+                    }
+                    done()
+                }
+            }
+        }
+    }
+
+    /// Switches Phi to the task's Space and puts windows back on their AeroSpace workspaces.
+    private func restoreWindows(_ t: Template) {
+        if t.usesPhi {
+            DispatchQueue.global().async { Phi.activate(for: t) }
+        }
+        let ids = Set(t.apps.filter { !$0.usesExtension }.map(\.bundleID))
+        let saved = (t.resume?.workspaces ?? [:]).filter { ids.contains($0.key) }, first = t.apps.first?.bundleID
+        DispatchQueue.global().async { AeroSpace.restore(saved, focus: first) }
+    }
+
+    /// Asks apps to quit normally, so they can still offer to save unsaved work.
+    /// Skips apps the current task uses (it may have started while the old task's files were being read).
+    private func quit(_ ids: [String]) {
+        let inUse = Set(session?.template.apps.map(\.bundleID) ?? [])
+        // Restarted right away: the running task now owns them, so they're still quit when it ends.
+        let adopted = ids.filter { inUse.contains($0) && session?.launched?.contains($0) == false }
+        if !adopted.isEmpty { session?.launched? += adopted; saveSession() }
+        for id in ids where id != Bundle.main.bundleIdentifier && !inUse.contains(id) {
+            Snapshot.running(id).forEach { $0.terminate() }
+        }
+    }
+
+    func linkPhiSpace(_ id: UUID, _ title: String) { updateTemplate(id) { $0.phiSpace = title } }
+
+    private func updateResume(_ id: UUID, _ change: (inout Resume) -> Void) {
+        updateTemplate(id) { t in
+            var r = t.resume ?? Resume()
+            change(&r)
+            t.resume = r
+        }
+    }
+
+    private func updateTemplate(_ id: UUID, _ change: (inout Template) -> Void) {
+        guard let i = templates.firstIndex(where: { $0.id == id }) else { return }
+        change(&templates[i])
+        saveTemplates()
     }
 
     private func runShortcut(_ name: String) {

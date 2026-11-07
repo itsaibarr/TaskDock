@@ -11,6 +11,8 @@
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSAppleEventsUsageDescription</key><string>TaskDock remembers which documents a task had open, so it can reopen them next time.</string>
+    <key>NSDocumentsFolderUsageDescription</key><string>TaskDock reads which Obsidian note was open, so it can reopen it next time.</string>
     <key>NSCalendarsFullAccessUsageDescription</key><string>TaskDock suggests a task from the calendar event happening now.</string>
 </dict>
 </plist>

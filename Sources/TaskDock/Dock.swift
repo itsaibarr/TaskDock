@@ -78,16 +78,4 @@ enum Dock {
         }
         NSLog("TaskDock: Dock change failed; backup is in ~/Library/Application Support/TaskDock/dock-original.plist")
     }
-
-    private static func capture(_ path: String, _ args: [String]) -> Data? {
-        let p = Process()
-        let pipe = Pipe()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
-        p.standardOutput = pipe
-        do { try p.run() } catch { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return p.terminationStatus == 0 ? data : nil
-    }
 }

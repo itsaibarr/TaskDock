@@ -41,7 +41,7 @@ enum Phi {
             Thread.sleep(forTimeInterval: 0.5)
         }
         guard !all.isEmpty else { return } // never create while Phi can't tell us what exists
-        if space(for: t, in: all) == nil, create(t.name, prompt: false) {
+        if space(for: t, in: all) == nil, create(t.name, emoji: t.emoji, prompt: false) {
             all = spaces()
             DispatchQueue.main.async { Store.shared.linkPhiSpace(t.id, t.name) } // renaming the template later keeps the link
         }
@@ -52,11 +52,11 @@ enum Phi {
 
     // MARK: Creating a Space
 
-    /// Phi's scripting can't create Spaces, so this uses its menu, like a person would:
-    /// "New Space" → type the name → Return. Needs Accessibility; `prompt` asks for it (only from a click,
-    /// never in the middle of starting a task). Blocking; true once Phi lists the Space.
+    /// Phi's scripting can't create Spaces, so this uses its form, like a person would: "New Space…" →
+    /// type the name → pick the template's emoji as the icon → "Create Space". Needs Accessibility; `prompt`
+    /// asks for it (only from a click, never in the middle of starting a task). Blocking; true once Phi lists the Space.
     @discardableResult
-    static func create(_ name: String, prompt: Bool) -> Bool {
+    static func create(_ name: String, emoji: String?, prompt: Bool) -> Bool {
         lock.lock() // one at a time: two creates would interleave keystrokes
         defer { lock.unlock() }
         if named(name, in: spaces()) != nil { return true } // made meanwhile (or by hand)
@@ -66,6 +66,8 @@ enum Phi {
             return false
         }
         let app = AXUIElementCreateApplication(phi.processIdentifier)
+        // Phi is built on Chromium, which shows its form's controls to accessibility only when asked.
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         guard let item = menuItems(app).first(where: { isNewSpace($0.title) }) else {
             NSLog("TaskDock: no New Space item in Phi's menus. Items: \(menuItems(app).map(\.title).joined(separator: " | "))")
             return false
@@ -86,8 +88,19 @@ enum Phi {
                 && ((now.flatMap { attribute($0 as! AXUIElement, kAXValueAttribute) } as? String) ?? "").isEmpty
         }
         NSLog("TaskDock: pressed Phi \"\(item.title)\"; focused: \(describe(attribute(app, kAXFocusedUIElementAttribute)))")
-        guard field else { return false }
+        guard field, let nameField = attribute(app, kAXFocusedUIElementAttribute).map({ $0 as! AXUIElement }),
+              let window = attribute(nameField, kAXWindowAttribute).map({ $0 as! AXUIElement }) else { return false }
         type(name, to: phi.processIdentifier)
+        if let emoji {
+            let picked = pickEmoji(emoji, in: window, app: app, pid: phi.processIdentifier)
+            NSLog("TaskDock: Phi Space \"\(name)\" icon: \(picked ? emoji : "left to Phi (emoji not found)")")
+        }
+        if let create = find(window, { role($0) == kAXButtonRole && attribute($0, kAXDescriptionAttribute) as? String == "Create Space" }) {
+            AXUIElementPerformAction(create, kAXPressAction as CFString)
+        } else { // older form: Return in the name field creates it
+            AXUIElementSetAttributeValue(nameField, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            key(36, to: phi.processIdentifier)
+        }
         for _ in 0..<10 {
             Thread.sleep(forTimeInterval: 0.3)
             if named(name, in: spaces()) != nil { return true }
@@ -115,19 +128,58 @@ enum Phi {
         return walk(bar as! AXUIElement)
     }
 
-    /// Types `text` into the focused (new, empty) field and presses Return.
-    private static func type(_ text: String, to pid: pid_t) {
-        func key(_ code: CGKeyCode, unicode: String? = nil) {
-            for down in [true, false] {
-                guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
-                if let unicode { e.keyboardSetUnicodeString(stringLength: unicode.utf16.count, unicodeString: Array(unicode.utf16)) }
-                e.postToPid(pid)
+    /// The Space's icon: the form's Emoji tab, search for the emoji, press the exact match. Types only into
+    /// the search field once it has focus. Best effort: false leaves Phi's own random icon.
+    private static func pickEmoji(_ emoji: String, in window: AXUIElement, app: AXUIElement, pid: pid_t) -> Bool {
+        let plain = { (s: String) in String(String.UnicodeScalarView(s.unicodeScalars.filter { $0.value != 0xFE0F })) } // ✍️ = ✍
+        let target = plain(emoji)
+        guard !target.isEmpty,
+              let tab = find(window, { role($0) == kAXButtonRole && attribute($0, kAXDescriptionAttribute) as? String == "Emoji" })
+        else { return false }
+        AXUIElementPerformAction(tab, kAXPressAction as CFString)
+        Thread.sleep(forTimeInterval: 0.4)
+        guard let search = find(window, { attribute($0, kAXPlaceholderValueAttribute) as? String == "Search emoji" }) else { return false }
+        // The emoji itself finds it in Phi's picker; its Unicode name is the fallback ("test tube").
+        var queries = [emoji, target]
+        if let name = target.unicodeScalars.first?.properties.name?.lowercased() { queries.append(name) }
+        for q in NSOrderedSet(array: queries).array as! [String] {
+            AXUIElementSetAttributeValue(search, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            Thread.sleep(forTimeInterval: 0.15)
+            guard let now = attribute(app, kAXFocusedUIElementAttribute), CFEqual(now, search) else { return false }
+            key(0, flags: .maskCommand, to: pid) // select all, then replace with the query
+            key(51, to: pid)
+            type(q, to: pid)
+            Thread.sleep(forTimeInterval: 0.6)
+            if let hit = find(window, { role($0) == kAXButtonRole && (attribute($0, kAXDescriptionAttribute) as? String).map(plain) == target }) {
+                AXUIElementPerformAction(hit, kAXPressAction as CFString)
+                Thread.sleep(forTimeInterval: 0.2)
+                return true
             }
-            Thread.sleep(forTimeInterval: 0.03)
         }
-        for ch in text { key(0, unicode: String(ch)) }
+        return false
+    }
+
+    /// The first element below `e` that matches, depth first.
+    private static func find(_ e: AXUIElement, _ match: (AXUIElement) -> Bool) -> AXUIElement? {
+        if match(e) { return e }
+        for c in attribute(e, kAXChildrenAttribute) as? [AXUIElement] ?? [] { if let hit = find(c, match) { return hit } }
+        return nil
+    }
+
+    /// Types `text` into the focused field.
+    private static func type(_ text: String, to pid: pid_t) {
+        for ch in text { key(0, unicode: String(ch), to: pid) }
         Thread.sleep(forTimeInterval: 0.2)
-        key(36) // Return
+    }
+
+    private static func key(_ code: CGKeyCode, unicode: String? = nil, flags: CGEventFlags = [], to pid: pid_t) {
+        for down in [true, false] {
+            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
+            if let unicode { e.keyboardSetUnicodeString(stringLength: unicode.utf16.count, unicodeString: Array(unicode.utf16)) }
+            e.flags = flags
+            e.postToPid(pid)
+        }
+        Thread.sleep(forTimeInterval: 0.03)
     }
 
     private static func attribute(_ e: AXUIElement, _ name: String) -> CFTypeRef? {

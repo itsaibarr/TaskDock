@@ -23,11 +23,21 @@ Website: https://itsaibarr.github.io/TaskDock/
   all; **Start fresh** skips it.
 - **Phi Spaces (optional)** — a template that includes [Phi](https://phibrowser.com) switches Phi to the Space named
   like the template (or the one you pick in the picker). Phi keeps that Space's tabs itself. If there's no such
-  Space, TaskDock creates it (needs Accessibility).
+  Space, TaskDock creates it with the template's emoji as its icon (needs Accessibility).
 - **AeroSpace (optional)** — with [AeroSpace](https://github.com/nikitabobko/AeroSpace) installed, finishing a task
   remembers which workspace each of its apps was on, and the next start moves their windows back there.
 - **Browser extension (optional)** — for templates that include a browser: opens a fresh window, minimizes the
   other windows and unloads their tabs until you finish.
+- **Hand off to your AI agent (optional)** — when an agent is still working 2 minutes after your prompt, the picker
+  opens with "Agent is on it. What will you do meanwhile?" so the long wait goes to another task. The agent's task
+  is parked: its apps are hidden, never quit. Several chats at once (say five projects in T3 Code) each get a menu
+  row and their own notification. The menu bar shows ⧗ while they work, ✓ when one is done and ! when one needs
+  you; clicking takes you back to the task and the chat's app. In T3 Code this works for every provider (Claude,
+  Codex…) and knows exactly which prompts you sent, which chats are delegates, and when they report back.
+- **Saved X posts (optional)** — every post on x.com gets a ◎ button next to X's bookmark button. One click saves the
+  link and the exact text to one list; type a thought in the small field that appears, or ignore it. On iPhone, share
+  a post to a **Save to TaskDock** Shortcut. ◎ → **Saved Posts** shows the list with your notes; **Start writing** puts
+  the ticked posts, quoted with their links and your takes, into this month's note in Obsidian (`Articles/Posts – November 2026.md`).
 - **Calendar suggestion (optional)** — with calendar access, the event happening now (or in the next 15 minutes)
   is suggested at the top of the picker; a template whose name appears in the event title is matched automatically.
 - Follows the system light/dark appearance.
@@ -60,11 +70,35 @@ Optionally move `build/TaskDock.app` into `/Applications`.
 2. Turn on **Developer mode** → **Load unpacked** → choose the `extension/` folder.
 3. The ◎ menu should say "Browser connected" within about 30 seconds.
 
+### Saved X posts (optional)
+
+Needs the browser extension (reload it after updating; the browser asks once to let it run on x.com and to add a
+right-click item). Click ◎ under a post to save it. If X changes its page and the button disappears, right-click the
+post's date or an open post's page → **Save post to TaskDock**.
+
+From iPhone or iPad: ◎ → **Saved Posts** → **Save from iPhone…** shows how to make the Shortcut once (it appends the
+post's link and your thought to `iCloud Drive/Shortcuts/TaskDock/inbox.txt`) and turns on reading that file.
+Posts saved this way get their text from X's public embed service (`publish.twitter.com`).
+
+**Start writing** writes into the Obsidian vault you opened most recently, in an `Articles` folder. Pressing it again
+in the same month adds to that note; it never overwrites. Without Obsidian, the note is copied to the clipboard.
+
 ### Calendars (optional)
 
 ◎ menu → **Connect Calendars…** and allow access. TaskDock reads calendars through macOS (EventKit), so it
 sees whatever Calendar.app sees. For Google calendars, add your Google account in
 **System Settings › Internet Accounts** and turn on Calendars. Event data is only read locally.
+
+### T3 Code and Claude Code (optional)
+
+Once Claude Code is connected (below), TaskDock also reads T3 Code's own record of its chats, read-only, and
+never writes to it. If T3 changes it in a way TaskDock doesn't recognize, TaskDock falls back to the hooks.
+
+◎ menu → **Connect Claude Code…** adds hooks (prompt sent, stopped, needs you, session ended) to
+`~/.claude/settings.json`. Your other hooks are kept, and the original file is backed up once as
+`settings.json.taskdock-backup`. Each hook runs TaskDock's own binary, which passes the event to the app and
+exits right away. It never blocks Claude Code, even when TaskDock isn't running. **Disconnect Claude Code**
+removes only TaskDock's hooks. Claude Code sessions that are already open may need a restart to pick them up.
 
 ## Usage
 
@@ -80,6 +114,8 @@ sees whatever Calendar.app sees. For Google calendars, add your Google account i
 | Automation (per app, e.g. Preview) | Read which documents a task had open | First finish of a task using that app |
 | Automation (Phi) | List Phi's Spaces and switch to the task's Space | First start of a task using Phi |
 | Accessibility (optional) | Create a missing Phi Space through Phi's **New Space** menu (Phi's scripting can't create Spaces) | When you choose **Create “…” Now** in the picker |
+| Notifications | Tell you when an agent finished or needs you | After **Connect Claude Code…** |
+| iCloud Drive | Read the iPhone Shortcut's `inbox.txt` | After turning on **Save from iPhone** |
 | Documents folder | Read Obsidian's open note (vault in `~/Documents`) | First finish of a task using Obsidian |
 | None for hiding apps | Uses `NSRunningApplication.hide()` | — |
 
@@ -99,7 +135,9 @@ Environment variables (for development; none are needed for normal use):
 
 ## Data and privacy
 
-All data stays on your Mac. Nothing is sent over the network.
+All data stays on your Mac. The one network request: for an X post saved without its text (from iPhone, by
+right-click, or cut off by "Show more"), TaskDock asks X's public embed service (`publish.twitter.com/oembed`) for
+that post, sending only the post's public link.
 
 - `~/Library/Application Support/TaskDock/templates.json` — your templates, "where you stopped" notes, and each
   task's saved state (tab URLs and file paths).
@@ -109,6 +147,17 @@ All data stays on your Mac. Nothing is sent over the network.
   icon, goal, start time and saved tab URLs to connected extensions, which keep them in the extension's local storage.
   When a task ends, the extension sends back that task window's web addresses (http/https only).
   See [SECURITY.md](SECURITY.md) for its limits.
+- `…/posts.json` — saved X posts: link, author, text, date, your note, and which article note used them.
+  `…/posts-inbox-seen.json` — post ids already taken from the iPhone inbox, so a post you deleted doesn't come back.
+  TaskDock only reads the inbox file, never writes it. Start writing creates or adds to `Articles/Posts – <month>.md`
+  in your Obsidian vault.
+- Claude Code hooks send TaskDock the event name, session id, prompt id, chat title, project folder, transcript path
+  and the chat's app, and for an approval the tool's name with a hash of its input (no prompts or code), through a
+  local macOS notification. TaskDock reads the new lines of that transcript, to notice who typed a prompt, an
+  interrupt, an answer, or delegates reporting back. Current chats are kept in
+  `…/agents.json` and dropped 3 hours after their last event; apps of parked tasks in `…/parked.json`.
+- T3 Code: TaskDock opens `~/.t3/userdata/statev2.sqlite` read-only and reads only chat ids, titles, run states,
+  times, who wrote each prompt (user or agent) and the kinds of background work still running, never message text.
 
 ## Safety and undo
 

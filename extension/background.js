@@ -6,7 +6,7 @@
 // When a task needs the browser: open one fresh window for it, minimize every other
 // window and unload ("discard") its tabs until the task ends.
 
-import { taskTabs } from './lib.js';
+import { taskTabs, postRef, queuePost } from './lib.js';
 
 const PORT = 47123;
 let ws = null;
@@ -27,6 +27,7 @@ function connect() {
     chrome.storage.session.set({ connected: true });
     send({ type: 'hello', v: 2 }); // v2: reports tabs while the task runs
     ping = setInterval(() => send({ type: 'ping' }), 20_000); // keeps the service worker alive
+    serial(flushPosts);
   };
   sock.onclose = () => {
     if (ws !== sock) return; // an older socket closing late must not touch the current one
@@ -38,6 +39,7 @@ function connect() {
   sock.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'state') serial(() => reconcile(msg.session));
+    if (msg.type === 'saved-ids') serial(() => confirmPosts(msg.ids));
   };
 }
 
@@ -153,3 +155,52 @@ async function finish(s) {
   await setSession(null);
   await chrome.action.setBadgeText({ text: '' });
 }
+
+// MARK: Saved X posts
+// x.js sends a post when you click its ◎ button (and a note if you type one). Saves wait in storage.local
+// until the app confirms them with its list of saved ids, so nothing is lost while the app is closed.
+
+const sent = new Map(); // post id → the exact message last sent, so a note added meanwhile isn't dropped
+
+const getPending = async () => (await chrome.storage.local.get('pendingPosts')).pendingPosts ?? {};
+
+async function savePost(post) {
+  if (!postRef(post.url) || postRef(post.url).id !== post.id) return;
+  await chrome.storage.local.set({ pendingPosts: queuePost(await getPending(), post) });
+  await flushPosts();
+}
+
+async function flushPosts() {
+  if (ws?.readyState !== WebSocket.OPEN) return;
+  for (const p of Object.values(await getPending())) {
+    const msg = JSON.stringify({ type: 'save-post', ...p });
+    sent.set(p.id, msg);
+    ws.send(msg);
+  }
+}
+
+async function confirmPosts(ids) {
+  const pending = await getPending();
+  for (const id of ids) {
+    if (pending[id] && sent.get(id) === JSON.stringify({ type: 'save-post', ...pending[id] })) delete pending[id];
+  }
+  await chrome.storage.local.set({ pendingPosts: pending, savedIds: ids });
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === 'save-post' && msg.post) serial(() => savePost(msg.post));
+});
+
+// Fallback when X changes its page and the button doesn't show: right-click a post link, or the page of an open post.
+// Only the link is known then; the app fetches the text from X.
+const POSTS = ['https://x.com/*/status/*', 'https://twitter.com/*/status/*', 'https://mobile.x.com/*/status/*'];
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'save-link', title: 'Save post to TaskDock', contexts: ['link'], targetUrlPatterns: POSTS });
+    chrome.contextMenus.create({ id: 'save-page', title: 'Save post to TaskDock', contexts: ['page'], documentUrlPatterns: POSTS });
+  });
+});
+chrome.contextMenus.onClicked.addListener((info) => {
+  const ref = postRef(info.linkUrl ?? info.pageUrl ?? '');
+  if (ref) serial(() => savePost({ id: ref.id, url: ref.url, handle: ref.handle }));
+});

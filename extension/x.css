@@ -1,0 +1,28 @@
+/* The ◎ button on x.com, sized and coloured like X's own action icons. */
+.taskdock-wrap { display: flex; align-items: center; }
+.taskdock-save {
+  all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 9999px; color: rgb(113, 118, 123); cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.taskdock-save svg { width: 18.75px; height: 18.75px; }
+.taskdock-save:hover { color: #2b6bf2; background-color: rgba(43, 107, 242, 0.1); }
+.taskdock-save:active { transform: scale(0.94); }
+.taskdock-save:focus-visible { outline: 2px solid #2b6bf2; outline-offset: 1px; }
+.taskdock-save.is-saved { color: #2b6bf2; }
+
+.taskdock-note {
+  position: fixed; z-index: 2147483647; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px;
+  border-radius: 12px; background: #fff; color: #0f1419;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  font: 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.taskdock-note span { color: #2b6bf2; font-weight: 600; font-size: 13px; white-space: nowrap; }
+.taskdock-note input {
+  all: unset; width: 260px; padding: 7px 10px; border-radius: 8px; background: rgba(15, 20, 25, 0.06); color: inherit;
+}
+.taskdock-note input::placeholder { color: #536471; }
+.taskdock-note.is-dark { background: #16181c; color: #e7e9ea; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.taskdock-note.is-dark input { background: rgba(231, 233, 234, 0.08); }
+.taskdock-note.is-dark input::placeholder { color: #71767b; }
+@media (prefers-reduced-motion: reduce) { .taskdock-save { transition: none; } .taskdock-save:active { transform: none; } }

@@ -105,7 +105,7 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(runs["a"]?.host, "com.t3tools.t3code")
         XCTAssertEqual(Agent.apply(.init(name: "Stop", session: "a"), to: &runs, ctx(60)), [.notify("a", .finished)])
         XCTAssertEqual(runs["a"]?.took, 60) // the banner says how long it ran
-        XCTAssertEqual([30, 23 * 60, 65 * 60, 120 * 60 as TimeInterval].map { Agent.done(after: $0) },
+        XCTAssertEqual(([30, 1380, 3900, 7200] as [TimeInterval]).map { Agent.done(after: $0) },
                        ["Done in under a minute", "Done after 23 min", "Done after 1 h 5 min", "Done after 2 h"])
         XCTAssertEqual(runs["b"]?.state, .working)
         XCTAssertEqual(Agent.apply(.init(name: "PermissionRequest", session: "b"), to: &runs, ctx(70)), [.notify("b", .needsYou)])

@@ -4,6 +4,8 @@ A macOS menu bar app for starting focused work. Press **⌃⌥Space**, pick a ta
 only that task's apps stay visible and pinned in the Dock. Your browser opens a fresh window while
 your other windows (and their tabs) are paused. When you finish, everything goes back the way it was.
 
+Website: https://itsaibarr.github.io/TaskDock/
+
 > **Status: early software (0.3.0, pre-1.0).** It rewrites your Dock preferences and hides
 > other apps. Read [Safety](#safety-and-undo) before using it.
 

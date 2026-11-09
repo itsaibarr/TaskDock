@@ -23,3 +23,6 @@ sample-data/
 
 # JS tooling, if added later
 node_modules/
+
+# Landing page work files (references, screenshots, council evidence)
+.context/

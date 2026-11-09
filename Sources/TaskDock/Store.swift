@@ -11,8 +11,14 @@ final class Store: ObservableObject {
     /// Some connected browser still runs an older extension and needs it reloaded.
     @Published var outdatedExtension = false
     @Published var editorSelection: UUID?
+    @Published var claudeConnected = false
 
     let bridge = Bridge()
+    /// Apps a parked task opened (task → bundle IDs): kept running while its agent works, handed back when it
+    /// restarts. Saved, so they're still never quit after TaskDock restarts.
+    private var parkedApps: [UUID: [String]] = [:] {
+        didSet { save(parkedApps, to: Self.dir.appendingPathComponent("parked.json")) }
+    }
     /// Sessions that just ended → their template, so a tab report sent right before the end still lands.
     private var ended: [UUID: UUID] = [:]
 
@@ -30,9 +36,13 @@ final class Store: ObservableObject {
     var dockBackupFile: URL { Self.dir.appendingPathComponent("dock-original.plist") }
 
     func boot() {
-        templates = load([Template].self, from: templatesFile) ?? []
+        let saved = load([Template].self, from: templatesFile)
+        templates = saved ?? []
         // A session that survived a crash or quit is resumed, so Finish can still restore everything.
         session = load(Session.self, from: sessionFile)
+        // A deleted task never comes back for its parked apps (unless the templates didn't load: keep them all then).
+        parkedApps = (load([UUID: [String]].self, from: Self.dir.appendingPathComponent("parked.json")) ?? [:])
+            .filter { p in saved == nil || templates.contains { $0.id == p.key } }
         bridge.stateMessage = { [weak self] in self?.stateMessage ?? [:] }
         bridge.onBrowsersChanged = { [weak self] n, outdated in
             self?.browsers = n
@@ -44,9 +54,29 @@ final class Store: ObservableObject {
                   templates.first(where: { $0.id == template })?.resume?.tabs != tabs else { return }
             updateResume(template) { $0.tabs = tabs }
         }
+        bridge.onPost = { Posts.shared.save(from: $0) }
+        bridge.savedPostIDs = { Posts.shared.posts.map(\.id) }
+        Posts.shared.onIDsChanged = { [weak self] in
+            guard let self else { return }
+            bridge.broadcast(bridge.savedPostsMessage)
+        }
+        Posts.shared.boot()
         bridge.start()
+        // Only the installed app repairs the hooks; dev builds (`swift run`) would point them at .build.
+        if Bundle.main.bundleIdentifier != nil, let s = Agent.readSettings(), Agent.isConnected(s) {
+            claudeConnected = true
+            Agent.requestPermission()
+            // The app moved since connecting: point the hooks at where it is now.
+            if !Agent.isCurrent(s, command: Agent.command) { try? Agent.writeSettings(Agent.connect(s, command: Agent.command)) }
+        }
+        Agents.shared.boot()
+        T3.shared.boot()
         Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { _ in
-            MainActor.assumeIsolated { Store.shared.now = Date() }
+            MainActor.assumeIsolated {
+                Store.shared.now = Date()
+                Agents.shared.tick(Store.shared.now)
+                Posts.shared.tick()
+            }
         }
     }
 
@@ -98,6 +128,7 @@ final class Store: ObservableObject {
         editorSelection = nil
         DispatchQueue.main.async {
             self.templates.removeAll { $0.id == id }
+            self.parkedApps[id] = nil
             self.saveTemplates()
             self.editorSelection = self.templates[safe: min(i, self.templates.count - 1)]?.id
         }
@@ -119,7 +150,8 @@ final class Store: ObservableObject {
     }
 
     /// `resume`: reopen what was open when this task last ended.
-    func start(_ t: Template, goal: String, resume: Bool = true) {
+    /// `show`: an app to keep in front too (a chat's app when you click its banner).
+    func start(_ t: Template, goal: String, resume: Bool = true, show: String? = nil) {
         var t = t
         if !resume { // Start fresh: drop what was saved; this run saves its own state when it ends
             t.resume = nil
@@ -129,6 +161,8 @@ final class Store: ObservableObject {
         var visible = running.filter { !$0.isHidden }.compactMap(\.bundleIdentifier)
         var dock: Data? // the "home" Dock to return to on finish
         let prev = session
+        // A task an agent works for is parked, not closed: its apps (the agent's window) are only hidden.
+        let parked = prev.map { Agents.shared.busy($0.template.id) } ?? false
 
         if let prev {
             // Switching: keep the pre-task home state instead of restoring it in between.
@@ -147,13 +181,15 @@ final class Store: ObservableObject {
         let ids = Set(t.apps.map(\.bundleID))
         let opened = t.apps.map(\.bundleID).filter { !Snapshot.isRunning($0) } // any kind of app, not just Dock apps
         let inherited = prev?.launched ?? []
+        if let prev, parked { parkedApps[prev.template.id] = inherited }
+        let returning = parkedApps.removeValue(forKey: t.id) ?? []
 
         // Save before changing anything, so a crash mid-way can still be undone.
         session = Session(template: t, goal: goal, visibleApps: visible, dock: dock,
-                          launched: inherited.filter(ids.contains) + opened)
+                          launched: Array(Set(inherited.filter(ids.contains) + opened + returning)))
         saveSession()
 
-        let keep = ids.union([Bundle.main.bundleIdentifier ?? ""])
+        let keep = ids.union([Bundle.main.bundleIdentifier ?? "", show ?? ""])
         for (i, app) in t.apps.enumerated() {
             if let r = running.first(where: { $0.bundleIdentifier == app.bundleID }) {
                 r.unhide()
@@ -164,19 +200,26 @@ final class Store: ObservableObject {
                 NSWorkspace.shared.openApplication(at: app.url, configuration: cfg)
             }
         }
-        for app in running where !keep.contains(app.bundleIdentifier ?? "") { app.hide() }
+        let hidden = running.filter { !keep.contains($0.bundleIdentifier ?? "") }
+        hidden.forEach { $0.hide() }
+        // Closing the picker hands focus back to the app that was in front a moment later, which unhides it.
+        let id = session?.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if Store.shared.session?.id == id { hidden.forEach { $0.hide() } }
+        }
 
         // Reopen this task's files only after the previous task's open files were read,
         // so an app both tasks use isn't saved with this task's files.
         if let prev {
             saveState(prev) {
-                Store.shared.quit(inherited)
+                if !parked { Store.shared.quit(inherited) }
                 Snapshot.reopen(t.resume?.items ?? [])
             }
         } else {
             Snapshot.reopen(t.resume?.items ?? [])
         }
         restoreWindows(t)
+        Agents.shared.seen(t.id) // back in the task: its finished runs are seen
 
         if let dock { Dock.apply(t.apps, over: dock, backup: dockBackupFile) }
         bridge.broadcast(stateMessage)
@@ -185,7 +228,10 @@ final class Store: ObservableObject {
 
     func finish(note: String) {
         guard let s = session else { return }
-        saveState(s) { Store.shared.quit(s.launched ?? []) } // quit only after their open files were read
+        let parked = Agents.shared.busy(s.template.id)
+        if parked { parkedApps[s.template.id] = s.launched ?? [] }
+        Agents.shared.seen(s.template.id)
+        saveState(s) { if !parked { Store.shared.quit(s.launched ?? []) } } // quit only after their open files were read
         session = nil
         saveSession()
         bridge.broadcast(stateMessage)
@@ -244,15 +290,32 @@ final class Store: ObservableObject {
         DispatchQueue.global().async { AeroSpace.restore(saved, focus: first) }
     }
 
-    /// Asks apps to quit normally, so they can still offer to save unsaved work.
-    /// Skips apps the current task uses (it may have started while the old task's files were being read).
+    /// Asks apps to quit normally, so they can still offer to save unsaved work. Quits only apps nobody else
+    /// owns: not the current task's (it may have started while the old task's files were being read), not a
+    /// parked task's (two tasks can share an app), not an agent's (T3 Code, Terminal…) while it works.
     private func quit(_ ids: [String]) {
         let inUse = Set(session?.template.apps.map(\.bundleID) ?? [])
         // Restarted right away: the running task now owns them, so they're still quit when it ends.
         let adopted = ids.filter { inUse.contains($0) && session?.launched?.contains($0) == false }
         if !adopted.isEmpty { session?.launched? += adopted; saveSession() }
-        for id in ids where id != Bundle.main.bundleIdentifier && !inUse.contains(id) {
+        let owned = inUse.union(Agents.shared.hosts).union(parkedApps.values.joined())
+        for id in ids where id != Bundle.main.bundleIdentifier && !owned.contains(id) {
             Snapshot.running(id).forEach { $0.terminate() }
+        }
+    }
+
+    // MARK: Agents
+
+    func toggleClaude() {
+        guard let s = Agent.readSettings() else {
+            return NSLog("TaskDock: ~/.claude/settings.json isn't valid JSON; left it alone")
+        }
+        do {
+            try Agent.writeSettings(claudeConnected ? Agent.disconnect(s) : Agent.connect(s, command: Agent.command))
+            claudeConnected.toggle()
+            if claudeConnected { Agent.requestPermission() }
+        } catch {
+            NSLog("TaskDock: could not update Claude Code settings: \(error)")
         }
     }
 

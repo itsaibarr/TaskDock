@@ -13,8 +13,13 @@ Only the latest commit on the default branch is supported while the project is p
 
 ## Security model and known limits
 
-- **Local only.** TaskDock makes no network requests. The browser bridge listens on
-  `127.0.0.1:47123` (loopback interface only).
+- **Local, with one exception.** The only network request is for an X post saved without its text: TaskDock
+  asks X's public embed service (`https://publish.twitter.com/oembed`, with `dnt=true`) for that post, sending only
+  the post's public link. The browser bridge listens on `127.0.0.1:47123` (loopback interface only).
+- **Saved posts over the bridge.** Anything that can connect to the bridge (see below) can add X posts to the saved
+  list and read the saved posts' ids. The app keeps only the post id and handle taken from a valid x.com or
+  twitter.com post link, so a forged message can't add other links. The x.com content script reads only the posts
+  on the page and sends them only to the extension.
 - **Bridge access check is weak by design.** The bridge accepts WebSocket connections whose `Origin`
   starts with `chrome-extension://`. Any installed browser extension, or any local process (which can
   set any `Origin` header), can connect and read the current task's name, icon, goal and start time.

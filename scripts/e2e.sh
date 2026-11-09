@@ -10,6 +10,7 @@ PORT=47124
 close_tests() { pgrep -x Preview >/dev/null && osascript -e 'tell application id "com.apple.Preview" to close (every document whose name is "e2e-image.png")' >/dev/null 2>&1 || true; }
 close_tests
 rm -rf "$OUT"; mkdir -p "$OUT/data"
+OUT=$(cd "$OUT" && pwd -P) # /tmp is a link to /private/tmp; apps report the real path
 printf 'TaskDock end-to-end note\n' > "$OUT/e2e-note.txt"
 sips -s format png /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericDocumentIcon.icns --out "$OUT/e2e-image.png" >/dev/null
 python3 - "$OUT/data/templates.json" <<'PY'

@@ -10,13 +10,18 @@ enum Windows {
     private(set) static var picker: KeyPanel?
     /// Fixed panel size with room for the card to grow and cast its shadow. Transparent parts let clicks through.
     static let size = CGSize(width: 560, height: 540)
+    /// The open picker's nudge, if it's one.
+    private static var nudge: UUID?
 
-    static func togglePicker(switching: Bool = false) {
+    /// `nudge`: opened because this task's agent is still working (`Agents.noTask`: no task), to offer another task meanwhile.
+    static func togglePicker(switching: Bool = false, nudge: UUID? = nil) {
         if let p = picker, p.isVisible { closePicker(); return }
+        Agents.shared.later = nil
+        Self.nudge = nudge
         let panel = picker ?? makePanel()
         picker = panel
         let host = NSHostingView(rootView:
-            PickerView(switching: switching, close: closePicker).environmentObject(Store.shared))
+            PickerView(switching: switching, nudge: nudge, close: closePicker).environmentObject(Store.shared))
         host.sizingOptions = [] // the card animates inside a fixed window; never resize the panel
         panel.contentView = host
         if let f = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
@@ -27,6 +32,7 @@ enum Windows {
 
     /// Drops the view too, so a hidden picker never reacts to store changes.
     static func closePicker() {
+        nudge = nil // first: closing it resigns key, which isn't "clicked elsewhere"
         picker?.orderOut(nil)
         picker?.contentView = nil
     }
@@ -43,7 +49,11 @@ enum Windows {
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: p, queue: .main) { _ in
-            MainActor.assumeIsolated { closePicker() }
+            // You clicked elsewhere: a nudge leaves a quiet menu item instead of popping up again. Esc leaves nothing.
+            MainActor.assumeIsolated {
+                if let n = nudge { Agents.shared.later = n }
+                closePicker()
+            }
         }
         return p
     }
@@ -53,7 +63,9 @@ enum Windows {
 struct PickerView: View {
     @EnvironmentObject var store: Store
     @State var switching: Bool
+    var nudge: UUID?
     let close: () -> Void
+    @ObservedObject private var agents = Agents.shared
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var ns
@@ -75,11 +87,13 @@ struct PickerView: View {
     @FocusState private var focused: Bool
 
     /// Shown above the templates while not searching. Takes row index 0 when present.
-    private var suggested: CalendarSuggestion? { query.isEmpty ? suggestion : nil }
+    private var suggested: CalendarSuggestion? { query.isEmpty && nudge == nil ? suggestion : nil }
     private var lead: Int { suggested == nil ? 0 : 1 }
 
     private var matches: [Template] {
-        query.isEmpty ? store.templates : store.templates.filter {
+        // When offering a task to do meanwhile, the one the agent works for isn't a choice.
+        let all = store.templates.filter { $0.id != nudge }
+        return query.isEmpty ? all : all.filter {
             $0.name.localizedCaseInsensitiveContains(query) || $0.emoji == query
         }
     }
@@ -112,13 +126,17 @@ struct PickerView: View {
         .frame(width: Windows.size.width, height: Windows.size.height, alignment: .top)
         .onExitCommand { editing == nil ? close() : toggle(nil) }
         .onChange(of: store.templates) { store.saveTemplates() }
-        .onAppear { suggestion = CalendarFeed.shared.suggestion(for: store.templates) }
+        .onAppear {
+            suggestion = CalendarFeed.shared.suggestion(for: store.templates)
+            if nudge != nil { expand() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Debug.pickerStep)) { n in
             switch n.object as? String {
             case "expand": expand()
             case "choose": if let t = matches.first { choose(t) }
             case "icon": toggle(.icon)
             case "apps": toggle(.apps)
+            case "start": if let t = store.templates.first(where: { $0.id == chosenID }) { start(t) }
             default: break
             }
         }
@@ -133,9 +151,21 @@ struct PickerView: View {
     private static let newRowID = "new-template"
 
     @ViewBuilder private var listView: some View {
+        if let nudge {
+            let template = nudge == Agents.noTask ? nil : nudge
+            let waiting = agents.runs.values.filter { $0.template == template && $0.state == .working && $0.yours }
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").foregroundStyle(Theme.accent)
+                Text(waiting.count > 1 ? "\(waiting.count) agents are on it" : "Agent is on it").foregroundStyle(.primary)
+                Text("· " + (store.templates.first { $0.id == template }.map { "\($0.emoji) \($0.name)" } ?? waiting.first?.title ?? ""))
+                    .foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 10).padding(.top, 4).padding(.bottom, 8)
+        }
         HStack(spacing: 10) {
             Image(systemName: "scope").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
-            field("Start a task…", $query) { expanded ? pick() : expand() }
+            field(nudge == nil ? "Start a task…" : "What will you do meanwhile?", $query) { expanded ? pick() : expand() }
         }
             .padding(.horizontal, 14)
             .frame(height: 46)
@@ -165,7 +195,7 @@ struct PickerView: View {
             ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(matches.enumerated()), id: \.element.id) { i, t in
-                    row(emojiTile(t.emoji), t.name, note: t.lastStopNote, selected: i + lead == index && dragging == nil)
+                    row(emojiTile(t.emoji), t.name, note: agents.note(for: t.id, now: store.now) ?? t.lastStopNote, selected: i + lead == index && dragging == nil)
                         .onHover { if $0, dragging == nil { index = i + lead } } // instant: frequent, pointer-driven
                         .onTapGesture { choose(t) }
                         .contextMenu {
@@ -174,7 +204,7 @@ struct PickerView: View {
                         }
                         // Reorder only the full list: positions in a filtered list are ambiguous.
                         .modifier(ReorderDrag(id: t.id, step: 40, items: $store.templates, dragging: $dragging,
-                                              enabled: query.isEmpty))
+                                              enabled: query.isEmpty && nudge == nil))
                         .modifier(BlurFade(hidden: !revealed))
                         .animation(revealAnimation(i), value: revealed)
                 }
@@ -306,7 +336,7 @@ struct PickerView: View {
     /// Makes the Space right away (through Phi's menu, so Phi comes to the front), then links it.
     private func createPhiSpace(_ t: Template) {
         Task {
-            if await Task.detached(operation: { Phi.create(t.name, prompt: true) }).value { store.linkPhiSpace(t.id, t.name) }
+            if await Task.detached(operation: { Phi.create(t.name, emoji: t.emoji, prompt: true) }).value { store.linkPhiSpace(t.id, t.name) }
             phiSpaces = await Task.detached { Phi.spaces() }.value
         }
     }

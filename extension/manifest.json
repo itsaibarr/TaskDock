@@ -2,11 +2,12 @@
   "manifest_version": 3,
   "name": "TaskDock",
   "version": "0.3.0",
-  "description": "Gives each TaskDock task a fresh browser window and pauses your other windows until you finish.",
+  "description": "Gives each TaskDock task a fresh browser window and pauses your other windows until you finish. Saves X posts for your next article.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "contextMenus"
   ],
   "background": {
     "service_worker": "background.js",
@@ -25,5 +26,21 @@
     "32": "icons/32.png",
     "48": "icons/48.png",
     "128": "icons/128.png"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.x.com/*"
+      ],
+      "js": [
+        "x.js"
+      ],
+      "css": [
+        "x.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

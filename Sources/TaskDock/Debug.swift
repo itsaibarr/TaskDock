@@ -9,12 +9,31 @@ enum Debug {
     static let shotDir: String? = nil
     #endif
     static var enabled: Bool { shotDir != nil }
-    /// Lets the screenshot run drive the picker ("expand", "choose").
+    /// Lets dev runs drive the picker ("expand", "choose", "start").
     static let pickerStep = Notification.Name("TaskDockPickerStep")
 
     @MainActor
     static func run() {
         #if DEBUG
+        // `TASKDOCK_PHI_CREATE="Name|🧪"` creates one Phi Space through its form, prints the result and quits.
+        if let spec = ProcessInfo.processInfo.environment["TASKDOCK_PHI_CREATE"]?.split(separator: "|").map(String.init), spec.count == 2 {
+            DispatchQueue.global().async {
+                let ok = Phi.create(spec[0], emoji: spec[1], prompt: false)
+                print("TaskDock: Phi create \(ok ? "ok" : "failed")")
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+            return
+        }
+        // `TASKDOCK_POSTS_WRITE_AFTER=<s>`: after s seconds, Start writing with every new saved post, print the result and quit.
+        if let delay = ProcessInfo.processInfo.environment["TASKDOCK_POSTS_WRITE_AFTER"].flatMap(Double.init) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(delay))
+                let ids = Set(Posts.shared.posts.filter { $0.usedIn == nil }.map(\.id))
+                print("TaskDock: start writing \(ids.count) \(Posts.shared.startWriting(ids))")
+                NSApp.terminate(nil)
+            }
+            return
+        }
         guard let dir = shotDir else { return }
         Task { @MainActor in
             for (name, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {

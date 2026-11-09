@@ -17,6 +17,9 @@ final class Bridge {
     var onBrowsersChanged: (_ count: Int, _ outdated: Bool) -> Void = { _, _ in }
     /// The current task window's tabs, by session.
     var onTabs: (UUID, [String]) -> Void = { _, _ in }
+    /// A saved X post (or a note for one), and the ids of every saved post, so the extension can mark them.
+    var onPost: ([String: Any]) -> Void = { _ in }
+    var savedPostIDs: () -> [String] = { [] }
 
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -25,7 +28,7 @@ final class Bridge {
     func start() {
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = true
-        ws.maximumMessageSize = 64 * 1024 // the extension only sends tiny JSON messages
+        ws.maximumMessageSize = 256 * 1024 // small JSON messages; a saved long post can be ~100 KB
         ws.setClientRequestHandler(.main) { _, headers in
             let origin = headers.first { $0.name.lowercased() == "origin" }?.value ?? ""
             let ok = origin.hasPrefix("chrome-extension://")
@@ -91,6 +94,10 @@ final class Bridge {
             if (msg["v"] as? Int ?? 1) < 2 { outdated.insert(ObjectIdentifier(c)) } else { outdated.remove(ObjectIdentifier(c)) }
             changed()
             send(stateMessage(), to: c)
+            send(savedPostsMessage, to: c)
+        case "save-post":
+            onPost(msg)
+            send(savedPostsMessage, to: c) // the extension drops a save from its queue once its id comes back
         case "tabs":
             guard let id = (msg["session"] as? String).flatMap(UUID.init), let urls = msg["urls"] as? [String] else { return }
             // Only web pages, so a saved tab can't become anything else when it's reopened.
@@ -98,6 +105,8 @@ final class Bridge {
         default: break // "ping" keeps the extension's service worker alive
         }
     }
+
+    var savedPostsMessage: [String: Any] { ["type": "saved-ids", "ids": savedPostIDs()] }
 
     func broadcast(_ msg: [String: Any]) {
         for c in connections.values { send(msg, to: c) }

@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskDock: one hotkey, one task on your Mac</title>
+<meta name="description" content="TaskDock is a macOS menu bar app. Press ⌃⌥Space, pick a task, and only its apps stay in view. Finish, and everything comes back.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="TaskDock: one hotkey, one task on your Mac">
+<meta property="og:description" content="TaskDock is a macOS menu bar app. Press ⌃⌥Space, pick a task, and only its apps stay in view. Finish, and everything comes back.">
+<meta property="og:image" content="https://itsaibarr.github.io/TaskDock/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://itsaibarr.github.io/TaskDock/">
+<meta property="og:url" content="https://itsaibarr.github.io/TaskDock/">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/geist-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/newsreader-300.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-scope" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="7.2"/><path d="M12 1.8v4M12 18.2v4M1.8 12h4M18.2 12h4"/></g></symbol>
+  <symbol id="i-cal" viewBox="0 0 14 12"><g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1" y="1.5" width="12" height="9.8" rx="2"/><path d="M1 4.6h12"/></g></symbol>
+  <symbol id="i-stack" viewBox="0 0 14 12"><g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="9" height="7.5" rx="1.6"/><path d="M4 1.6h6"/></g></symbol>
+  <symbol id="i-plus" viewBox="0 0 12 12"><path d="M6 1.5v9M1.5 6h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-up" viewBox="0 0 14 14"><path d="M7 12V2.5M2.8 6.5 7 2.3l4.2 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 14 12"><path d="M5 1.5 1.6 4.8 5 8M1.8 4.8h6.7a3.6 3.6 0 0 1 0 7.2H7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 14 14"><path d="M5.5 1.5 6.6 4.9 10 6 6.6 7.1 5.5 10.5 4.4 7.1 1 6l3.4-1.1zM11 8.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" fill="currentColor"/></symbol>
+</svg>
+
+<header class="nav">
+  <a class="brand" href="#top" aria-label="TaskDock, back to top">
+    <span class="app-icon" aria-hidden="true"><svg><use href="#i-scope"/></svg></span>TaskDock
+  </a>
+  <nav aria-label="Sections">
+    <ul>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#agents">Agents</a></li>
+      <li><a href="#works-with">Works with</a></li>
+      <li><a href="#engineering">Under the hood</a></li>
+    </ul>
+  </nav>
+  <div class="nav__end">
+    <a class="btn btn--line" href="https://github.com/itsaibarr/TaskDock">View on GitHub →</a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- 1. Hero -->
+<section id="top" class="hero wrap" aria-labelledby="top-h">
+  <h1 id="top-h" class="h1">One hotkey, one task. <span class="dim">The rest can wait.</span></h1>
+  <p class="lead">Press ⌃⌥Space and pick a task. Only its apps stay visible and in the Dock, and your browser opens a fresh window. When you finish, everything goes back the way it was.</p>
+  <div class="actions">
+    <a class="btn btn--solid" href="https://github.com/itsaibarr/TaskDock">Get it on GitHub</a>
+    <a class="btn btn--line" href="#how">See how it works</a>
+  </div>
+
+  <div class="hero__stage">
+    <picture class="hero__art" aria-hidden="true">
+      <source type="image/avif" srcset="assets/swirl-hero-1200.avif 1200w, assets/swirl-hero-2400.avif 2400w" sizes="(max-width: 700px) 240vw, max(1440px, 100vw)">
+      <img src="assets/swirl-hero-2400.webp" srcset="assets/swirl-hero-1200.webp 1200w, assets/swirl-hero-2400.webp 2400w" sizes="(max-width: 700px) 240vw, max(1440px, 100vw)" width="2400" height="917" alt="" fetchpriority="high">
+    </picture>
+    <div class="hero__demo">
+      <div class="zoom">
+        <div id="picker-demo" class="picker glass" data-open="true" role="group" aria-label="TaskDock picker demo"></div>
+      </div>
+      <p class="demo-note"><span class="fine">Interactive demo. Type, use ↑↓ and ↩, or press esc.</span><span class="touch">Interactive demo. Tap a task.</span></p>
+      <p class="sr-only" aria-live="polite" id="picker-demo-status"></p>
+    </div>
+  </div>
+</section>
+
+<!-- 2. How it works -->
+<section id="how" class="band wrap" aria-labelledby="how-h">
+  <div class="section-head">
+    <h2 id="how-h" class="h2">Start, switch, finish. <span class="dim">Your Mac follows.</span></h2>
+  </div>
+  <ol class="boxes">
+    <li class="box"><span class="mono">01</span><h3>Focus</h3><p>The task's apps open. Every other app is hidden, not quit, and the Dock shows only the task's apps.</p></li>
+    <li class="box"><span class="mono">02</span><h3>Resume</h3><p>Pick the task again and ↩ reopens its tabs, documents, Obsidian note and the note you left. Start fresh skips it.</p></li>
+    <li class="box"><span class="mono">03</span><h3>Restore</h3><p>Finish brings back the apps you had, quits the ones TaskDock opened so they can still ask to save, and restores your exact Dock.</p></li>
+  </ol>
+</section>
+
+<!-- 3. Focus -->
+<section id="focus" class="band band--paper wrap" aria-labelledby="focus-h">
+  <div class="section-head">
+    <p class="eyebrow">Focus</p>
+    <h2 id="focus-h" class="h2">Your Dock, <span class="dim">down to one task.</span></h2>
+    <p class="lead">Pick a template and only its apps stay in the Dock. Everything else is hidden, not quit, so nothing loses its place.</p>
+  </div>
+  <figure class="feature">
+  <div class="panel">
+    <picture class="panel__art" aria-hidden="true">
+      <source type="image/avif" srcset="assets/swirl-panel-900.avif 900w, assets/swirl-panel-1600.avif 1600w" sizes="(max-width: 900px) 120vw, 1400px">
+      <img src="assets/swirl-panel-1600.webp" srcset="assets/swirl-panel-900.webp 900w, assets/swirl-panel-1600.webp 1600w" sizes="(max-width: 900px) 120vw, 1400px" width="1600" height="933" alt="" loading="lazy">
+    </picture>
+    <div class="dock-demo">
+      <div class="seg glass" role="group" aria-label="Dock state">
+        <button type="button" aria-pressed="false" data-dock="before">Before</button>
+        <button type="button" aria-pressed="true" data-dock="task">During “Writing ✍️”</button>
+      </div>
+      <ul class="dock glass" data-state="task" aria-label="Dock">
+        <li data-pinned style="view-transition-name:d-mail"><img src="assets/icons/mail.webp" width="96" height="96" alt="Mail"><span class="run"></span></li>
+        <li data-pinned style="view-transition-name:d-messages"><img src="assets/icons/messages.webp" width="96" height="96" alt="Messages"><span class="run"></span></li>
+        <li data-pinned style="view-transition-name:d-music"><img src="assets/icons/music.webp" width="96" height="96" alt="Music"><span class="run off"></span></li>
+        <li  style="view-transition-name:d-helium"><img src="assets/icons/helium.webp" width="96" height="96" alt="Helium"><span class="run"></span></li>
+        <li  style="view-transition-name:d-preview"><img src="assets/icons/preview.webp" width="96" height="96" alt="Preview"><span class="run"></span></li>
+        <li  style="view-transition-name:d-obsidian"><img src="assets/icons/obsidian.webp" width="96" height="96" alt="Obsidian"><span class="run"></span></li>
+        <li data-pinned style="view-transition-name:d-calendar"><img src="assets/icons/calendar.webp" width="96" height="96" alt="Calendar"><span class="run off"></span></li>
+        <li data-task-only aria-hidden="true" class="sep"></li>
+        <li data-task-only style="view-transition-name:d-mail"><img src="assets/icons/mail.webp" width="96" height="96" alt="Mail, hidden"><span class="run"></span></li>
+        <li data-task-only style="view-transition-name:d-messages"><img src="assets/icons/messages.webp" width="96" height="96" alt="Messages, hidden"><span class="run"></span></li>
+      </ul>
+    </div>
+  </div>
+  <figcaption class="panel-caption" aria-live="polite" id="dock-caption">During the task, the Dock shows the template's apps. Mail and Messages are hidden, not quit, and keep their icon because macOS shows every running app.</figcaption>
+  </figure>
+  <div class="items">
+    <div><h3>Hidden, not quit.</h3><p>Apps that were open before the task stay running. They come back when you finish.</p></div>
+    <div><h3>Shortcuts on start and finish.</h3><p>Each template can run an Apple Shortcut when it starts and another when it ends.</p></div>
+    <div><h3>A fresh browser window.</h3><p>With the extension, your browser opens a new window and unloads the other windows' tabs until you finish.</p></div>
+  </div>
+</section>
+
+<!-- 4. Resume -->
+<section id="resume" class="band wrap" aria-labelledby="resume-h">
+  <div class="section-head">
+    <p class="eyebrow">Resume</p>
+    <h2 id="resume-h" class="h2">Pick up <span class="dim">where you left off.</span></h2>
+    <p class="lead">Finishing or switching saves what the task had open. Next time, ↩ reopens it all.</p>
+  </div>
+  <figure class="feature">
+  <div class="panel panel--tl">
+    <picture class="panel__art" aria-hidden="true">
+      <source type="image/avif" srcset="assets/swirl-panel-900.avif 900w, assets/swirl-panel-1600.avif 1600w" sizes="(max-width: 900px) 120vw, 1400px">
+      <img src="assets/swirl-panel-1600.webp" srcset="assets/swirl-panel-900.webp 900w, assets/swirl-panel-1600.webp 1600w" sizes="(max-width: 900px) 120vw, 1400px" width="1600" height="933" alt="" loading="lazy">
+    </picture>
+    <div class="shots">
+      <div class="shot glass">
+        <picture>
+          <source type="image/avif" srcset="assets/finish-card.avif">
+          <img src="assets/finish-card.webp" width="934" height="224" loading="lazy" alt="TaskDock's finish card for the task “Draft the intro section”: a field asking “Where did you stop? What's next?”, the hint “Open tabs and files are saved”, and Switch Task and Finish buttons.">
+        </picture>
+      </div>
+      <div class="shot glass">
+        <picture>
+          <source type="image/avif" srcset="assets/resume-card.avif">
+          <img src="assets/resume-card.webp" width="934" height="358" loading="lazy" alt="TaskDock's start card for the Writing template: “Pick up where you left off, 2 hours ago”, the saved note “page 45, exercise 4.3 done; next: try 4.4 before reading 4.5”, chips for 3 tabs, the PDF Calculus Early Transcendentals and the Obsidian note Week 3 notes, and a Start fresh link.">
+        </picture>
+      </div>
+    </div>
+  </div>
+  <figcaption class="panel-caption">Screenshots from TaskDock 0.3. Finishing asks where you stopped; next time, ↩ reopens it.</figcaption>
+  </figure>
+  <div class="items">
+    <div><h3>Browser tabs.</h3><p>The task window's tabs are saved as they change, so they survive the browser quitting.</p></div>
+    <div><h3>Documents and notes.</h3><p>Files open in Preview, TextEdit, Pages and other scriptable apps, and the note open in Obsidian. Preview reopens a PDF at the page you were on.</p></div>
+    <div><h3>Your own note.</h3><p>Finishing asks “Where did you stop? What's next?” and shows your answer next time.</p></div>
+  </div>
+</section>
+
+<!-- 5. Agent hand-off -->
+<section id="agents" class="band band--paper wrap" aria-labelledby="agents-h">
+  <div class="section-head">
+    <p class="eyebrow">Agents <span class="tag">Next release</span></p>
+    <h2 id="agents-h" class="h2">Waiting on an agent? <span class="dim">Start something else.</span></h2>
+    <p class="lead">When an AI agent is still working 2 minutes after your prompt, TaskDock offers another task. The agent's task is parked, and a banner calls you back.</p>
+  </div>
+
+  <figure class="feature">
+  <div class="showcase">
+    <ol class="steps" aria-label="Agent hand-off, step by step">
+      <li class="step" data-active="true"><button type="button" aria-controls="screen" aria-pressed="true" data-step="0">You send a prompt.</button><p>You stay in your task while Claude Code hooks tell TaskDock the chat started working. No prompt text or code leaves the hook. The menu bar shows ⧗.</p></li>
+      <li class="step"><button type="button" aria-controls="screen" aria-pressed="false" data-step="1">Two minutes pass.</button><p>The picker opens with “Agent is on it” and “What will you do meanwhile?”. With several chats it reads “3 agents are on it”.</p></li>
+      <li class="step"><button type="button" aria-controls="screen" aria-pressed="false" data-step="2">The agent's task is parked.</button><p>Its apps are hidden, never quit, while you work on something else.</p></li>
+      <li class="step"><button type="button" aria-controls="screen" aria-pressed="false" data-step="3">It finishes.</button><p>A banner names the chat and its task: “Done after 23 min”. The menu bar shows ✓, or ! when an agent needs you.</p></li>
+      <li class="step"><button type="button" aria-controls="screen" aria-pressed="false" data-step="4">Click back.</button><p>The banner takes you back to the task and the chat's app.</p></li>
+    </ol>
+
+    <div class="screen" id="screen">
+      <picture class="panel__art" aria-hidden="true">
+      <source type="image/avif" srcset="assets/swirl-panel-900.avif 900w, assets/swirl-panel-1600.avif 1600w" sizes="(max-width: 900px) 140vw, 1000px">
+      <img src="assets/swirl-panel-1600.webp" srcset="assets/swirl-panel-900.webp 900w, assets/swirl-panel-1600.webp 1600w" sizes="(max-width: 900px) 140vw, 1000px" width="1600" height="933" alt="" loading="lazy">
+    </picture>
+      <div class="menubar glass" aria-label="Menu bar">
+        <span class="mb-item" id="mb-label">💻 Fix the login redirect · 12m ⧗</span>
+      </div>
+      <div class="views">
+        <div class="view" data-view="0">
+          <div class="zoom"><div class="picker glass" role="img" aria-label="Finish card: Coding · 12m, Fix the login redirect">
+            <div class="p-head"><span class="chip">💻</span><span class="sm">Coding · 12m</span></div>
+            <div class="p-card p-compose"><div class="p-goal">Fix the login redirect</div><div class="p-ph">Where did you stop? What's next?</div>
+              <div class="p-row2"><span class="p-hint">Open tabs and files are saved · esc close</span><span class="p-pill">Switch Task…</span><span class="p-pill p-pill--blue">Finish</span></div></div>
+          </div></div>
+        </div>
+        <div class="view" data-view="1" hidden>
+          <div class="zoom"><div id="nudge-demo" class="picker glass" data-open="true" role="group" aria-label="Agent nudge picker demo"></div></div>
+        </div>
+        <div class="view" data-view="2" hidden>
+          <div class="zoom"><div class="picker glass" role="img" aria-label="Finish card: Writing · 1m, Draft the intro section">
+            <div class="p-head"><span class="chip">✍️</span><span class="sm">Writing · 1m</span></div>
+            <div class="p-card p-compose"><div class="p-goal">Draft the intro section</div><div class="p-ph">Where did you stop? What's next?</div>
+              <div class="p-row2"><span class="p-hint">Open tabs and files are saved · esc close</span><span class="p-pill">Switch Task…</span><span class="p-pill p-pill--blue">Finish</span></div></div>
+          </div></div>
+        </div>
+        <div class="view" data-view="3" hidden>
+          <div class="banner glass" role="img" aria-label="Notification: Login redirect loop, Coding, Done after 23 min">
+            <span class="app-icon" aria-hidden="true"><svg><use href="#i-scope"/></svg></span>
+            <b>Login redirect loop</b><time>now</time>
+            <span class="s">💻 Coding</span>
+            <span class="b">Done after 23 min</span>
+          </div>
+        </div>
+        <div class="view" data-view="4" hidden>
+          <div class="pressed"><div class="banner glass" role="img" aria-label="Notification: Login redirect loop, Coding, Done after 23 min">
+            <span class="app-icon" aria-hidden="true"><svg><use href="#i-scope"/></svg></span>
+            <b>Login redirect loop</b><time>now</time>
+            <span class="s">💻 Coding</span>
+            <span class="b">Done after 23 min</span>
+          </div></div>
+          <svg class="cursor" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 1.5v13.2l3.7-3.4 2.4 5.2 2.3-1-2.3-5.1h5z" fill="#111" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="panel-caption">Illustration of the next release; chat names and times are examples. It works through Claude Code hooks, and in T3 Code it also reads T3's own records, read-only, for every provider.</figcaption>
+  </figure>
+</section>
+
+<!-- 6. Works with -->
+<section id="works-with" class="band wrap" aria-labelledby="works-h">
+  <div class="section-head">
+    <h2 id="works-h" class="h2">Works with <span class="dim">the tools you already use.</span></h2>
+  </div>
+  <div class="index-grid">
+    <div class="index-side">
+      <div class="index-card" aria-hidden="true">
+        <picture>
+          <source type="image/avif" srcset="assets/swirl-panel-900.avif">
+          <img src="assets/swirl-panel-900.webp" width="900" height="525" alt="" loading="lazy">
+        </picture>
+        <img class="index-icon" id="index-icon" src="assets/icons/phi.webp" width="96" height="96" alt="">
+      </div>
+      <p class="index-now"><span id="index-k">Phi Spaces</span>: <span id="index-line">Switches Phi to the Space named like the template, and creates it with the template's emoji if it's missing.</span></p>
+      <p class="index-caption">Every integration is optional.</p>
+    </div>
+    <ul class="index">
+      <li><a href="https://phibrowser.com"><img class="row-icon" src="assets/icons/phi.webp" width="96" height="96" alt="" loading="lazy"><span class="name">Phi Spaces</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Switches Phi to the Space named like the template, and creates it with the template's emoji if it's missing.</p></li>
+      <li><a href="https://github.com/nikitabobko/AeroSpace"><img class="row-icon" src="assets/icons/aerospace.webp" width="96" height="96" alt="" loading="lazy"><span class="name">AeroSpace</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Remembers each app's workspace when you finish and moves the windows back when you start.</p></li>
+      <li><a href="https://github.com/itsaibarr/TaskDock#browser-extension-optional"><img class="row-icon" src="assets/icons/extension.webp" width="96" height="96" alt="" loading="lazy"><span class="name">Browser extension</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Opens a fresh window and unloads the other windows' tabs. Chromium 116 or later.</p></li>
+      <li><a href="https://github.com/itsaibarr/TaskDock#calendars-optional"><img class="row-icon" src="assets/icons/calendar.webp" width="96" height="96" alt="" loading="lazy"><span class="name">Calendar</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Suggests the event happening now, or in the next 15 minutes, at the top of the picker.</p></li>
+      <li><a href="https://github.com/itsaibarr/TaskDock#features"><img class="row-icon" src="assets/icons/shortcuts.webp" width="96" height="96" alt="" loading="lazy"><span class="name">Apple Shortcuts</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Runs a Shortcut when a task starts and another when it ends.</p></li>
+      <li><a href="https://code.claude.com/docs/en/hooks"><img class="row-icon" src="assets/icons/claude.webp" width="96" height="96" alt="" loading="lazy"><span class="name">Claude Code</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Next release: hooks tell TaskDock when an agent works, finishes or needs you.</p></li>
+      <li><a href="https://t3.codes"><img class="row-icon" src="assets/icons/t3code.webp" width="96" height="96" alt="" loading="lazy"><span class="name">T3 Code</span><span class="arrow" aria-hidden="true">↗</span></a><p class="line">Next release: reads T3's own records, read-only, for every provider.</p></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 7. Under the hood -->
+<section id="engineering" class="band band--paper wrap" aria-labelledby="eng-h">
+  <div class="section-head">
+    <p class="eyebrow">Under the hood</p>
+    <h2 id="eng-h" class="h2">No Dock API, <span class="dim">so it treats yours carefully.</span></h2>
+  </div>
+  <dl class="spec">
+    <div><dt class="mono">Dock</dt><dd>macOS has no public Dock API. TaskDock rewrites the <code>com.apple.dock</code> preferences and restarts the Dock. Changes are queued, wait for the Dock to settle, and are read back and retried.</dd></div>
+    <div><dt class="mono">Safety</dt><dd>The pre-task Dock is saved before anything changes. If TaskDock quits mid-task, reopening it resumes the task, so Finish still restores. To restore your original Dock by hand:
+      <pre class="codeblock" tabindex="0" aria-label="Manual Dock undo command"><code>defaults import com.apple.dock \
+  ~/Library/Application\ Support/TaskDock/dock-original.plist \
+  &amp;&amp; killall Dock</code></pre></dd></div>
+    <div><dt class="mono">Hotkey</dt><dd>Carbon <code>RegisterEventHotKey</code>, so the hotkey needs no Accessibility permission.</dd></div>
+    <div><dt class="mono">Browser bridge</dt><dd>A loopback-only WebSocket on 127.0.0.1:47123 that accepts <code>chrome-extension://</code> origins, so there's no per-browser native-messaging setup. The Manifest V3 extension unloads tabs with <code>tabs.discard</code>.</dd></div>
+    <div><dt class="mono">Privacy</dt><dd>All data stays on your Mac. Nothing is sent over the network.</dd></div>
+    <div><dt class="mono">Tests</dt><dd>XCTest unit tests, extension tests with <code>node --test</code>, and end-to-end scenarios that drive the real app.</dd></div>
+    <div><dt class="mono">App</dt><dd>SwiftUI and AppKit, <code>MenuBarExtra</code>, and a borderless panel for the picker. No third-party dependencies.</dd></div>
+  </dl>
+  <p class="limits">Known limits: hidden apps keep their Dock icon, the Dock flickers for about a second, the hotkey is fixed, and builds are ad-hoc signed, not notarized. <a class="link" href="https://github.com/itsaibarr/TaskDock#known-limitations">All limits in the README</a></p>
+</section>
+
+<!-- 8. Who made it -->
+<section id="author" class="band wrap" aria-labelledby="author-h">
+  <div class="author">
+    <div>
+      <p class="eyebrow">Who made it</p>
+      <h2 id="author-h" class="h2">Why I built it.</h2>
+    </div>
+    <div>
+      <p class="lead">I'm Aibar Yerzhuman. I built TaskDock because I kept losing focus to clutter: every app and tab from every task open at once. The agent hand-off came later. When I gave a coding agent a long task, I sat half-waiting, busy without doing anything useful. Now switching to something else is the easy default, and TaskDock calls me back when the agent is done.</p>
+      <div class="actions">
+        <a class="btn btn--line" href="https://github.com/itsaibarr">GitHub</a>
+        <a class="btn btn--line" href="https://x.com/itsaibarr">X</a>
+        <a class="btn btn--line" href="https://www.linkedin.com/in/aibar-yerzhuman/">LinkedIn</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Close -->
+<section id="install" class="close wrap" aria-labelledby="install-h">
+  <h2 id="install-h" class="h2">Build it from source.</h2>
+  <pre class="codeblock" tabindex="0" aria-label="Install commands"><code>./scripts/build.sh
+open build/TaskDock.app</code></pre>
+  <p class="lead note">Early software. Source only, ad-hoc signed, not notarized. It rewrites your Dock preferences, so read <a class="link" href="https://github.com/itsaibarr/TaskDock#safety-and-undo">Safety and undo</a> first.</p>
+  <div class="actions">
+    <a class="btn btn--solid" href="https://github.com/itsaibarr/TaskDock">Get it on GitHub</a>
+    <a class="btn btn--line" href="https://github.com/itsaibarr/TaskDock/blob/main/CHANGELOG.md">Read the changelog →</a>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div>
+    <a class="brand" href="#top"><span class="app-icon" aria-hidden="true"><svg><use href="#i-scope"/></svg></span>TaskDock</a>
+    <p class="blurb">A macOS menu bar app for starting focused work. Version 0.3.0.</p>
+  </div>
+  <nav aria-labelledby="f-product"><h2 id="f-product">Product</h2><ul>
+    <li><a href="#how">How it works</a></li><li><a href="#agents">Agents</a></li><li><a href="#works-with">Works with</a></li><li><a href="#engineering">Under the hood</a></li></ul></nav>
+  <nav aria-labelledby="f-project"><h2 id="f-project">Project</h2><ul>
+    <li><a href="https://github.com/itsaibarr/TaskDock">GitHub</a></li><li><a href="https://github.com/itsaibarr/TaskDock/blob/main/CHANGELOG.md">Changelog</a></li><li><a href="https://github.com/itsaibarr/TaskDock/blob/main/SECURITY.md">Security</a></li><li><a href="https://github.com/itsaibarr/TaskDock/blob/main/LICENSE">MIT License</a></li></ul></nav>
+  <nav aria-labelledby="f-author"><h2 id="f-author">Author</h2><ul>
+    <li><a href="https://github.com/itsaibarr">GitHub</a></li><li><a href="https://x.com/itsaibarr">X</a></li><li><a href="https://www.linkedin.com/in/aibar-yerzhuman/">LinkedIn</a></li></ul></nav>
+  <p class="fine">MIT © 2026 Aibar Yerzhuman</p>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>
